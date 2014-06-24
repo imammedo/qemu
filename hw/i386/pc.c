@@ -1257,8 +1257,8 @@ FWCfgState *pc_memory_init(MachineState *machine,
 
         if ((pcms->hotplug_memory_base + hotplug_mem_size) <
             hotplug_mem_size) {
-            error_report("unsupported amount of maximum memory: " RAM_ADDR_FMT,
-                         machine->maxram_size);
+            error_report("unsupported amount of maximum memory: %"
+                         RAM_ADDR_FMT, machine->maxram_size);
             exit(EXIT_FAILURE);
         }
 

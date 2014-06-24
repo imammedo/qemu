@@ -189,7 +189,7 @@ void set_numa_nodes(void)
         }
         if (numa_total != ram_size) {
             error_report("total memory for NUMA nodes (%" PRIu64 ")"
-                         " should equal RAM size (" RAM_ADDR_FMT ")",
+                         " should equal RAM size (%" RAM_ADDR_FMT ")",
                          numa_total, ram_size);
             exit(1);
         }

@@ -1072,8 +1072,8 @@ static int ram_load(QEMUFile *f, void *opaque, int version_id)
                 QTAILQ_FOREACH(block, &ram_list.blocks, next) {
                     if (!strncmp(id, block->idstr, sizeof(id))) {
                         if (block->length != length) {
-                            error_report("Length mismatch: %s: " RAM_ADDR_FMT
-                                         " in != " RAM_ADDR_FMT, id, length,
+                            error_report("Length mismatch: %s: %" RAM_ADDR_FMT
+                                         " in != %" RAM_ADDR_FMT, id, length,
                                          block->length);
                             ret =  -EINVAL;
                         }
@@ -1098,7 +1098,7 @@ static int ram_load(QEMUFile *f, void *opaque, int version_id)
 
             host = host_from_stream_offset(f, addr, flags);
             if (!host) {
-                error_report("Illegal RAM offset " RAM_ADDR_FMT, addr);
+                error_report("Illegal RAM offset %" RAM_ADDR_FMTX, addr);
                 ret = -EINVAL;
                 break;
             }
@@ -1110,7 +1110,7 @@ static int ram_load(QEMUFile *f, void *opaque, int version_id)
 
             host = host_from_stream_offset(f, addr, flags);
             if (!host) {
-                error_report("Illegal RAM offset " RAM_ADDR_FMT, addr);
+                error_report("Illegal RAM offset %" RAM_ADDR_FMTX, addr);
                 ret = -EINVAL;
                 break;
             }
@@ -1119,14 +1119,14 @@ static int ram_load(QEMUFile *f, void *opaque, int version_id)
         } else if (flags & RAM_SAVE_FLAG_XBZRLE) {
             void *host = host_from_stream_offset(f, addr, flags);
             if (!host) {
-                error_report("Illegal RAM offset " RAM_ADDR_FMT, addr);
+                error_report("Illegal RAM offset %" RAM_ADDR_FMTX, addr);
                 ret = -EINVAL;
                 break;
             }
 
             if (load_xbzrle(f, addr, host) < 0) {
-                error_report("Failed to decompress XBZRLE page at "
-                             RAM_ADDR_FMT, addr);
+                error_report("Failed to decompress XBZRLE page at %"
+                             RAM_ADDR_FMTX, addr);
                 ret = -EINVAL;
                 break;
             }

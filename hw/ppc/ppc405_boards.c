@@ -358,7 +358,7 @@ static void ref405ep_init(MachineState *machine)
         bdloc = 0;
     }
 #ifdef DEBUG_BOARD_INIT
-    printf("bdloc " RAM_ADDR_FMT "\n", bdloc);
+    printf("bdloc %" RAM_ADDR_FMTX "\n", bdloc);
     printf("%s: Done\n", __func__);
 #endif
 }

@@ -3319,7 +3319,7 @@ int main(int argc, char **argv, char **envp)
                     sz = qemu_opt_get_size(opts, "maxmem", 0);
                     if (sz < ram_size) {
                         fprintf(stderr, "qemu: invalid -m option value: maxmem "
-                                "(%" PRIu64 ") <= initial memory ("
+                                "(%" PRIu64 ") <= initial memory (%"
                                 RAM_ADDR_FMT ")\n", sz, ram_size);
                         exit(EXIT_FAILURE);
                     }
@@ -3327,7 +3327,7 @@ int main(int argc, char **argv, char **envp)
                     slots = qemu_opt_get_number(opts, "slots", 0);
                     if ((sz > ram_size) && !slots) {
                         fprintf(stderr, "qemu: invalid -m option value: maxmem "
-                                "(%" PRIu64 ") more than initial memory ("
+                                "(%" PRIu64 ") more than initial memory (%"
                                 RAM_ADDR_FMT ") but no hotplug slots where "
                                 "specified\n", sz, ram_size);
                         exit(EXIT_FAILURE);
@@ -3336,7 +3336,7 @@ int main(int argc, char **argv, char **envp)
                     if ((sz <= ram_size) && slots) {
                         fprintf(stderr, "qemu: invalid -m option value:  %"
                                 PRIu64 " hotplug slots where specified but "
-                                "maxmem (%" PRIu64 ") <= initial memory ("
+                                "maxmem (%" PRIu64 ") <= initial memory (%"
                                 RAM_ADDR_FMT ")\n", slots, sz, ram_size);
                         exit(EXIT_FAILURE);
                     }

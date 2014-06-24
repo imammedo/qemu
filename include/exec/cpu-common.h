@@ -38,11 +38,13 @@ enum device_endian {
 #if defined(CONFIG_XEN_BACKEND)
 typedef uint64_t ram_addr_t;
 #  define RAM_ADDR_MAX UINT64_MAX
-#  define RAM_ADDR_FMT "%" PRIx64
+#  define RAM_ADDR_FMTX PRIx64
+#  define RAM_ADDR_FMT PRIu64
 #else
 typedef uintptr_t ram_addr_t;
 #  define RAM_ADDR_MAX UINTPTR_MAX
-#  define RAM_ADDR_FMT "%" PRIxPTR
+#  define RAM_ADDR_FMTX PRIxPTR
+#  define RAM_ADDR_FMT PRIuPTR
 #endif
 
 extern ram_addr_t ram_size;

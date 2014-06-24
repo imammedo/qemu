@@ -221,8 +221,8 @@ void xen_ram_alloc(ram_addr_t ram_addr, ram_addr_t size, MemoryRegion *mr)
 
     if (runstate_check(RUN_STATE_INMIGRATE)) {
         /* RAM already populated in Xen */
-        fprintf(stderr, "%s: do not alloc "RAM_ADDR_FMT
-                " bytes of ram at "RAM_ADDR_FMT" when runstate is INMIGRATE\n",
+        fprintf(stderr, "%s: do not alloc %"RAM_ADDR_FMT" bytes"
+                " of ram at %"RAM_ADDR_FMTX" when runstate is INMIGRATE\n",
                 __func__, size, ram_addr); 
         return;
     }
@@ -241,7 +241,7 @@ void xen_ram_alloc(ram_addr_t ram_addr, ram_addr_t size, MemoryRegion *mr)
     }
 
     if (xc_domain_populate_physmap_exact(xen_xc, xen_domid, nr_pfn, 0, 0, pfn_list)) {
-        hw_error("xen: failed to populate ram at " RAM_ADDR_FMT, ram_addr);
+        hw_error("xen: failed to populate ram at %" RAM_ADDR_FMTX, ram_addr);
     }
 
     g_free(pfn_list);
@@ -1127,9 +1127,8 @@ void xen_modified_memory(ram_addr_t start, ram_addr_t length)
             - start_pfn;
         rc = xc_hvm_modified_memory(xen_xc, xen_domid, start_pfn, nb_pages);
         if (rc) {
-            fprintf(stderr,
-                    "%s failed for "RAM_ADDR_FMT" ("RAM_ADDR_FMT"): %i, %s\n",
-                    __func__, start, nb_pages, rc, strerror(-rc));
+            fprintf(stderr, "%s failed for %"RAM_ADDR_FMTX" (%"RAM_ADDR_FMT"):"
+                    " %i, %s\n", __func__, start, nb_pages, rc, strerror(-rc));
         }
     }
 }

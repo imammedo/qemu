@@ -1435,8 +1435,8 @@ void qemu_ram_remap(ram_addr_t addr, ram_addr_t length)
                                 flags, -1, 0);
                 }
                 if (area != vaddr) {
-                    fprintf(stderr, "Could not remap addr: "
-                            RAM_ADDR_FMT "@" RAM_ADDR_FMT "\n",
+                    fprintf(stderr, "Could not remap addr: %"
+                            RAM_ADDR_FMTX "@%" RAM_ADDR_FMTX "\n",
                             length, addr);
                     exit(1);
                 }
