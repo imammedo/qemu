@@ -81,6 +81,7 @@ struct MachineClass {
     const char *desc;
 
     void (*init)(MachineState *state);
+    void (*instance_pre_init)(MachineState *state, Error **errp);
     void (*reset)(void);
     void (*hot_add_cpu)(const int64_t id, Error **errp);
     int (*kvm_type)(const char *arg);
@@ -133,5 +134,9 @@ struct MachineState {
     char *initrd_filename;
     const char *cpu_model;
 };
+
+#define MACHINE_MEMORY_SIZE_OPT    "memory-size"
+#define MACHINE_MEMORY_SLOTS_OPT   "memory-slots"
+#define MACHINE_MAXMEMORY_SIZE_OPT "maxmem"
 
 #endif

@@ -12,6 +12,10 @@
 
 #include "hw/boards.h"
 #include "qapi/visitor.h"
+#include "qemu/error-report.h"
+#include "hw/xen/xen.h"
+
+static const ram_addr_t default_ram_size  = 128 * 1024 * 1024;
 
 static char *machine_get_accel(Object *obj, Error **errp)
 {
@@ -235,8 +239,118 @@ static void machine_set_firmware(Object *obj, const char *value, Error **errp)
     ms->firmware = g_strdup(value);
 }
 
+static void machine_get_ram_size(Object *obj, Visitor *v,
+                                 void *opaque, const char *name,
+                                 Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+    int64_t value = ms->ram_size;
+
+    visit_type_int(v, &value, name, errp);
+}
+
+static void machine_set_ram_size(Object *obj, Visitor *v,
+                                 void *opaque, const char *name,
+                                 Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+    Error *error = NULL;
+    int64_t value;
+
+    visit_type_int(v, &value, name, &error);
+    if (error) {
+        goto out;
+    }
+
+    value = QEMU_ALIGN_UP(value, 8192);
+    ms->ram_size = value;
+    if (ms->ram_size != value) {
+        error_setg(&error, "ram size too large");
+        goto out;
+    }
+
+    if (!ms->ram_size) {
+        error_setg(&error, "ram size can't be 0");
+    }
+out:
+    if (error) {
+        error_propagate(errp, error);
+    }
+}
+
+static void machine_get_maxram_size(Object *obj, Visitor *v,
+                                    void *opaque, const char *name,
+                                    Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+    int64_t value = ms->maxram_size;
+
+    visit_type_int(v, &value, name, errp);
+}
+
+static void machine_set_maxram_size(Object *obj, Visitor *v,
+                                    void *opaque, const char *name,
+                                    Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+    Error *error = NULL;
+    int64_t value;
+
+    visit_type_int(v, &value, name, &error);
+    if (error) {
+        goto out;
+    }
+
+    ms->maxram_size = value;
+    if (ms->maxram_size != value) {
+        error_setg(&error, "maxmem is too large");
+        goto out;
+    }
+
+    if (!ms->maxram_size) {
+        error_setg(&error, "maxmem can't be 0");
+    }
+out:
+    if (error) {
+        error_propagate(errp, error);
+    }
+}
+
+static void machine_get_ram_slots(Object *obj, Visitor *v,
+                                  void *opaque, const char *name,
+                                  Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+    int64_t value = ms->ram_slots;
+
+    visit_type_int(v, &value, name, errp);
+}
+
+static void machine_set_ram_slots(Object *obj, Visitor *v,
+                                  void *opaque, const char *name,
+                                  Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+    Error *error = NULL;
+    int64_t value;
+
+    visit_type_int(v, &value, name, &error);
+    if (error) {
+        goto out;
+    }
+
+    ms->ram_slots = value;
+
+out:
+    if (error) {
+        error_propagate(errp, error);
+    }
+}
+
 static void machine_initfn(Object *obj)
 {
+    MachineState *ms = MACHINE(obj);
+
     object_property_add_str(obj, "accel",
                             machine_get_accel, machine_set_accel, NULL);
     object_property_add_bool(obj, "kernel_irqchip",
@@ -274,6 +388,20 @@ static void machine_initfn(Object *obj)
     object_property_add_bool(obj, "usb", machine_get_usb, machine_set_usb, NULL);
     object_property_add_str(obj, "firmware",
                             machine_get_firmware, machine_set_firmware, NULL);
+
+    ms->ram_size = default_ram_size;
+    object_property_add(obj, MACHINE_MEMORY_SIZE_OPT, "int",
+                        machine_get_ram_size,
+                        machine_set_ram_size,
+                        NULL, NULL, NULL);
+    object_property_add(obj, MACHINE_MAXMEMORY_SIZE_OPT, "int",
+                        machine_get_maxram_size,
+                        machine_set_maxram_size,
+                        NULL, NULL, NULL);
+    object_property_add(obj, MACHINE_MEMORY_SLOTS_OPT, "int",
+                        machine_get_ram_slots,
+                        machine_set_ram_slots,
+                        NULL, NULL, NULL);
 }
 
 static void machine_finalize(Object *obj)
@@ -290,11 +418,64 @@ static void machine_finalize(Object *obj)
     g_free(ms->firmware);
 }
 
+static void machine_pre_init(MachineState *ms, Error **errp)
+{
+    Error *error = NULL;
+
+    if ((ms->ram_size > ms->maxram_size) && ms->maxram_size) {
+        error_setg(&error, "invalid \"maxmem\" value (%" RAM_ADDR_FMT
+                   ") < initial memory (%" RAM_ADDR_FMT ")",
+                   ms->maxram_size, ms->ram_size);
+        goto out;
+    }
+
+    if ((ms->ram_size < ms->maxram_size) && !ms->ram_slots) {
+        error_setg(&error, "invalid \"maxmem\" value (%" RAM_ADDR_FMT ") "
+                   "more than initial memory (%" PRIu64 ") but "
+                   "no hotplug slots where specified",
+                   ms->maxram_size, ms->ram_size);
+        goto out;
+    }
+
+    if ((ms->ram_size == ms->maxram_size) && ms->ram_slots) {
+        error_setg(&error, "invalid \"maxmem\" value (%" RAM_ADDR_FMT ") "
+                   "it must be more than initial memory if hotplug slots > 0",
+                   ms->maxram_size);
+        goto out;
+    }
+
+    if (!ms->maxram_size && !ms->ram_slots) {
+        ms->maxram_size = ms->ram_size;
+    }
+
+    if (!xen_enabled()) {
+        /* On 32-bit hosts, QEMU is limited by virtual address space */
+        if (HOST_LONG_BITS == 32 && ((ms->ram_size > (2047 << 20)) ||
+                                     (ms->maxram_size > (2047 << 20)))) {
+            error_setg(&error, "at most 2047 MB RAM can be simulated\n");
+            goto out;
+        }
+    }
+
+out:
+    if (error) {
+        error_propagate(errp, error);
+    }
+}
+
+static void machine_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->instance_pre_init = machine_pre_init;
+}
+
 static const TypeInfo machine_info = {
     .name = TYPE_MACHINE,
     .parent = TYPE_OBJECT,
     .abstract = true,
     .class_size = sizeof(MachineClass),
+    .class_init = machine_class_init,
     .instance_size = sizeof(MachineState),
     .instance_init = machine_initfn,
     .instance_finalize = machine_finalize,
