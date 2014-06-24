@@ -2927,6 +2927,7 @@ int main(int argc, char **argv, char **envp)
     };
     const char *trace_events = NULL;
     const char *trace_file = NULL;
+    Error *local_err = NULL;
     const ram_addr_t default_ram_size = (ram_addr_t)DEFAULT_RAM_SIZE *
                                         1024 * 1024;
     ram_addr_t maxram_size = default_ram_size;
@@ -4220,7 +4221,6 @@ int main(int argc, char **argv, char **envp)
     configure_accelerator(machine_class);
 
     if (qtest_chrdev) {
-        Error *local_err = NULL;
         qtest_init(qtest_chrdev, qtest_log, &local_err);
         if (local_err) {
             error_report("%s", error_get_pretty(local_err));
@@ -4448,7 +4448,6 @@ int main(int argc, char **argv, char **envp)
 #ifdef CONFIG_VNC
     /* init remote displays */
     if (vnc_display) {
-        Error *local_err = NULL;
         vnc_display_init(ds);
         vnc_display_open(ds, vnc_display, &local_err);
         if (local_err != NULL) {
@@ -4503,7 +4502,6 @@ int main(int argc, char **argv, char **envp)
     }
 
     if (incoming) {
-        Error *local_err = NULL;
         qemu_start_incoming_migration(incoming, &local_err);
         if (local_err) {
             error_report("-incoming %s: %s", incoming,
