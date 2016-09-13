@@ -229,6 +229,7 @@ xfs=""
 
 vhost_net="no"
 vhost_scsi="no"
+vhost_vsock="no"
 kvm="no"
 rdma=""
 gprof="no"
@@ -674,6 +675,7 @@ Haiku)
   kvm="yes"
   vhost_net="yes"
   vhost_scsi="yes"
+  vhost_vsock="yes"
   QEMU_INCLUDES="-I\$(SRC_PATH)/linux-headers -I$(pwd)/linux-headers $QEMU_INCLUDES"
 ;;
 esac
@@ -1016,6 +1018,10 @@ for opt do
   --disable-vhost-scsi) vhost_scsi="no"
   ;;
   --enable-vhost-scsi) vhost_scsi="yes"
+  ;;
+  --disable-vhost-vsock) vhost_vsock="no"
+  ;;
+  --enable-vhost-vsock) vhost_vsock="yes"
   ;;
   --disable-opengl) opengl="no"
   ;;
@@ -1452,7 +1458,7 @@ fi
 gcc_flags="-Wold-style-declaration -Wold-style-definition -Wtype-limits"
 gcc_flags="-Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers $gcc_flags"
 gcc_flags="-Wmissing-include-dirs -Wempty-body -Wnested-externs $gcc_flags"
-gcc_flags="-Wendif-labels $gcc_flags"
+gcc_flags="-Wendif-labels -Wno-shift-negative-value $gcc_flags"
 gcc_flags="-Wno-initializer-overrides $gcc_flags"
 gcc_flags="-Wno-string-plus-int $gcc_flags"
 # Note that we do not add -Werror to gcc_flags here, because that would
@@ -4192,6 +4198,18 @@ if compile_prog "" "" ; then
 fi
 
 ##########################################
+# check if we have posix_syslog
+
+posix_syslog=no
+cat > $TMPC << EOF
+#include <syslog.h>
+int main(void) { openlog("qemu", LOG_PID, LOG_DAEMON); syslog(LOG_INFO, "configure"); return 0; }
+EOF
+if compile_prog "" "" ; then
+    posix_syslog=yes
+fi
+
+##########################################
 # check if trace backend exists
 
 $python "$source_path/scripts/tracetool.py" "--backends=$trace_backends" --check-backends  > /dev/null 2> /dev/null
@@ -4699,7 +4717,16 @@ roms=
 if test \( "$cpu" = "i386" -o "$cpu" = "x86_64" \) -a \
         "$targetos" != "Darwin" -a "$targetos" != "SunOS" -a \
         "$softmmu" = yes ; then
-  roms="optionrom"
+    # Different host OS linkers have different ideas about the name of the ELF
+    # emulation. Linux and OpenBSD use 'elf_i386'; FreeBSD uses the _fbsd
+    # variant; and Windows uses i386pe.
+    for emu in elf_i386 elf_i386_fbsd i386pe; do
+        if "$ld" -verbose 2>&1 | grep -q "^[[:space:]]*$emu[[:space:]]*$"; then
+            ld_i386_emulation="$emu"
+            roms="optionrom"
+            break
+        fi
+    done
 fi
 if test "$cpu" = "ppc64" -a "$targetos" != "Darwin" ; then
   roms="$roms spapr-rtas"
@@ -4862,6 +4889,7 @@ echo "uuid support      $uuid"
 echo "libcap-ng support $cap_ng"
 echo "vhost-net support $vhost_net"
 echo "vhost-scsi support $vhost_scsi"
+echo "vhost-vsock support $vhost_vsock"
 echo "Trace backends    $trace_backends"
 if have_backend "simple"; then
 echo "Trace output file $trace_file-<pid>"
@@ -5243,6 +5271,9 @@ fi
 if test "$vhost_net" = "yes" ; then
   echo "CONFIG_VHOST_NET_USED=y" >> $config_host_mak
 fi
+if test "$vhost_vsock" = "yes" ; then
+  echo "CONFIG_VHOST_VSOCK=y" >> $config_host_mak
+fi
 if test "$blobs" = "yes" ; then
   echo "INSTALL_BLOBS=yes" >> $config_host_mak
 fi
@@ -5459,6 +5490,13 @@ if have_backend "ftrace"; then
     feature_not_found "ftrace(trace backend)" "ftrace requires Linux"
   fi
 fi
+if have_backend "syslog"; then
+  if test "$posix_syslog" = "yes" ; then
+    echo "CONFIG_TRACE_SYSLOG=y" >> $config_host_mak
+  else
+    feature_not_found "syslog(trace backend)" "syslog not available"
+  fi
+fi
 echo "CONFIG_TRACE_FILE=$trace_file" >> $config_host_mak
 
 if test "$rdma" = "yes" ; then
@@ -5539,6 +5577,7 @@ fi
 echo "LDFLAGS=$LDFLAGS" >> $config_host_mak
 echo "LDFLAGS_NOPIE=$LDFLAGS_NOPIE" >> $config_host_mak
 echo "LD_REL_FLAGS=$LD_REL_FLAGS" >> $config_host_mak
+echo "LD_I386_EMULATION=$ld_i386_emulation" >> $config_host_mak
 echo "LIBS+=$LIBS" >> $config_host_mak
 echo "LIBS_TOOLS+=$libs_tools" >> $config_host_mak
 echo "PTHREAD_LIB=$PTHREAD_LIB" >> $config_host_mak

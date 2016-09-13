@@ -47,6 +47,7 @@
 #include "hw/ppc/ppc.h"
 #include "hw/loader.h"
 
+#include "hw/ppc/fdt.h"
 #include "hw/ppc/spapr.h"
 #include "hw/ppc/spapr_vio.h"
 #include "hw/pci-host/spapr.h"
@@ -249,40 +250,6 @@ static int spapr_fixup_cpu_dt(void *fdt, sPAPRMachineState *spapr)
     return ret;
 }
 
-
-static size_t create_page_sizes_prop(CPUPPCState *env, uint32_t *prop,
-                                     size_t maxsize)
-{
-    size_t maxcells = maxsize / sizeof(uint32_t);
-    int i, j, count;
-    uint32_t *p = prop;
-
-    for (i = 0; i < PPC_PAGE_SIZES_MAX_SZ; i++) {
-        struct ppc_one_seg_page_size *sps = &env->sps.sps[i];
-
-        if (!sps->page_shift) {
-            break;
-        }
-        for (count = 0; count < PPC_PAGE_SIZES_MAX_SZ; count++) {
-            if (sps->enc[count].page_shift == 0) {
-                break;
-            }
-        }
-        if ((p - prop) >= (maxcells - 3 - count * 2)) {
-            break;
-        }
-        *(p++) = cpu_to_be32(sps->page_shift);
-        *(p++) = cpu_to_be32(sps->slb_enc);
-        *(p++) = cpu_to_be32(count);
-        for (j = 0; j < count; j++) {
-            *(p++) = cpu_to_be32(sps->enc[j].page_shift);
-            *(p++) = cpu_to_be32(sps->enc[j].pte_enc);
-        }
-    }
-
-    return (p - prop) * sizeof(uint32_t);
-}
-
 static hwaddr spapr_node0_size(void)
 {
     MachineState *machine = MACHINE(qdev_get_machine());
@@ -298,16 +265,6 @@ static hwaddr spapr_node0_size(void)
     }
     return machine->ram_size;
 }
-
-#define _FDT(exp) \
-    do { \
-        int ret = (exp);                                           \
-        if (ret < 0) {                                             \
-            fprintf(stderr, "qemu: error creating device tree: %s: %s\n", \
-                    #exp, fdt_strerror(ret));                      \
-            exit(1);                                               \
-        }                                                          \
-    } while (0)
 
 static void add_str(GString *s, const gchar *s1)
 {
@@ -656,13 +613,13 @@ static void spapr_populate_cpu_dt(CPUState *cs, void *fdt, int offset,
         _FDT((fdt_setprop_cell(fdt, offset, "d-cache-size",
                                pcc->l1_dcache_size)));
     } else {
-        fprintf(stderr, "Warning: Unknown L1 dcache size for cpu\n");
+        error_report("Warning: Unknown L1 dcache size for cpu");
     }
     if (pcc->l1_icache_size) {
         _FDT((fdt_setprop_cell(fdt, offset, "i-cache-size",
                                pcc->l1_icache_size)));
     } else {
-        fprintf(stderr, "Warning: Unknown L1 icache size for cpu\n");
+        error_report("Warning: Unknown L1 icache size for cpu");
     }
 
     _FDT((fdt_setprop_cell(fdt, offset, "timebase-frequency", tbfreq)));
@@ -698,7 +655,7 @@ static void spapr_populate_cpu_dt(CPUState *cs, void *fdt, int offset,
         _FDT((fdt_setprop_cell(fdt, offset, "ibm,dfp", 1)));
     }
 
-    page_sizes_prop_size = create_page_sizes_prop(env, page_sizes_prop,
+    page_sizes_prop_size = ppc_create_page_sizes_prop(env, page_sizes_prop,
                                                   sizeof(page_sizes_prop));
     if (page_sizes_prop_size) {
         _FDT((fdt_setprop(fdt, offset, "ibm,segment-page-sizes",
@@ -954,20 +911,20 @@ static void spapr_finalize_fdt(sPAPRMachineState *spapr,
 
     ret = spapr_populate_memory(spapr, fdt);
     if (ret < 0) {
-        fprintf(stderr, "couldn't setup memory nodes in fdt\n");
+        error_report("couldn't setup memory nodes in fdt");
         exit(1);
     }
 
     ret = spapr_populate_vdevice(spapr->vio_bus, fdt);
     if (ret < 0) {
-        fprintf(stderr, "couldn't setup vio devices in fdt\n");
+        error_report("couldn't setup vio devices in fdt");
         exit(1);
     }
 
     if (object_resolve_path_type("", TYPE_SPAPR_RNG, NULL)) {
         ret = spapr_rng_populate_dt(fdt);
         if (ret < 0) {
-            fprintf(stderr, "could not set up rng device in the fdt\n");
+            error_report("could not set up rng device in the fdt");
             exit(1);
         }
     }
@@ -983,7 +940,7 @@ static void spapr_finalize_fdt(sPAPRMachineState *spapr,
     /* RTAS */
     ret = spapr_rtas_device_tree_setup(fdt, rtas_addr, rtas_size);
     if (ret < 0) {
-        fprintf(stderr, "Couldn't set up RTAS device tree properties\n");
+        error_report("Couldn't set up RTAS device tree properties");
     }
 
     /* cpus */
@@ -1812,8 +1769,15 @@ static void ppc_spapr_init(MachineState *machine)
         machine->cpu_model = kvm_enabled() ? "host" : "POWER7";
     }
 
+    ppc_cpu_parse_features(machine->cpu_model);
+
     if (mc->query_hotpluggable_cpus) {
         char *type = spapr_get_cpu_core_type(machine->cpu_model);
+
+        if (type == NULL) {
+            error_report("Unable to find sPAPR CPU Core definition");
+            exit(1);
+        }
 
         spapr->cores = g_new0(Object *, spapr_max_cores);
         for (i = 0; i < spapr_max_cores; i++) {
@@ -1826,15 +1790,7 @@ static void ppc_spapr_init(MachineState *machine)
             qemu_register_reset(spapr_drc_reset, drc);
 
             if (i < spapr_cores) {
-                char *type = spapr_get_cpu_core_type(machine->cpu_model);
-                Object *core;
-
-                if (!object_class_by_name(type)) {
-                    error_report("Unable to find sPAPR CPU Core definition");
-                    exit(1);
-                }
-
-                core  = object_new(type);
+                Object *core  = object_new(type);
                 object_property_set_int(core, smp_threads, "nr-threads",
                                         &error_fatal);
                 object_property_set_int(core, core_id, CPU_CORE_PROP_CORE_ID,

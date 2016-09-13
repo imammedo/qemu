@@ -204,8 +204,8 @@ struct BlockDriver {
     bool has_variable_length;
     int64_t (*bdrv_get_allocated_file_size)(BlockDriverState *bs);
 
-    int (*bdrv_write_compressed)(BlockDriverState *bs, int64_t sector_num,
-                                 const uint8_t *buf, int nb_sectors);
+    int coroutine_fn (*bdrv_co_pwritev_compressed)(BlockDriverState *bs,
+        uint64_t offset, uint64_t bytes, QEMUIOVector *qiov);
 
     int (*bdrv_snapshot_create)(BlockDriverState *bs,
                                 QEMUSnapshotInfo *sn_info);
@@ -443,8 +443,8 @@ struct BlockDriverState {
                          note this is a reference count */
 
     CoQueue flush_queue;            /* Serializing flush queue */
+    BdrvTrackedRequest *active_flush_req; /* Flush request in flight */
     unsigned int write_gen;         /* Current data generation */
-    unsigned int flush_started_gen; /* Generation for which flush has started */
     unsigned int flushed_gen;       /* Flushed write generation */
 
     BlockDriver *drv; /* NULL means no media */
@@ -765,6 +765,7 @@ void mirror_start(const char *job_id, BlockDriverState *bs,
 void backup_start(const char *job_id, BlockDriverState *bs,
                   BlockDriverState *target, int64_t speed,
                   MirrorSyncMode sync_mode, BdrvDirtyBitmap *sync_bitmap,
+                  bool compress,
                   BlockdevOnError on_source_error,
                   BlockdevOnError on_target_error,
                   BlockCompletionFunc *cb, void *opaque,

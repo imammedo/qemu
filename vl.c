@@ -1914,7 +1914,8 @@ static void main_loop(void)
 
 static void version(void)
 {
-    printf("QEMU emulator version " QEMU_VERSION QEMU_PKGVERSION ", Copyright (c) 2003-2008 Fabrice Bellard\n");
+    printf("QEMU emulator version " QEMU_VERSION QEMU_PKGVERSION ", "
+           QEMU_COPYRIGHT "\n");
 }
 
 static void help(int exitcode)
@@ -2806,6 +2807,19 @@ static bool object_create_initial(const char *type)
         g_str_equal(type, "filter-dump") ||
         g_str_equal(type, "filter-mirror") ||
         g_str_equal(type, "filter-redirector")) {
+        return false;
+    }
+
+    /* Memory allocation by backends needs to be done
+     * after configure_accelerator() (due to the tcg_enabled()
+     * checks at memory_region_init_*()).
+     *
+     * Also, allocation of large amounts of memory may delay
+     * chardev initialization for too long, and trigger timeouts
+     * on software that waits for a monitor socket to be created
+     * (e.g. libvirt).
+     */
+    if (g_str_has_prefix(type, "memory-backend-")) {
         return false;
     }
 

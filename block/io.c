@@ -540,17 +540,6 @@ static int bdrv_check_byte_request(BlockDriverState *bs, int64_t offset,
     return 0;
 }
 
-static int bdrv_check_request(BlockDriverState *bs, int64_t sector_num,
-                              int nb_sectors)
-{
-    if (nb_sectors < 0 || nb_sectors > BDRV_REQUEST_MAX_SECTORS) {
-        return -EIO;
-    }
-
-    return bdrv_check_byte_request(bs, sector_num * BDRV_SECTOR_SIZE,
-                                   nb_sectors * BDRV_SECTOR_SIZE);
-}
-
 typedef struct RwCo {
     BdrvChild *child;
     int64_t offset;
@@ -895,6 +884,19 @@ emulate_flags:
     }
 
     return ret;
+}
+
+static int coroutine_fn
+bdrv_driver_pwritev_compressed(BlockDriverState *bs, uint64_t offset,
+                               uint64_t bytes, QEMUIOVector *qiov)
+{
+    BlockDriver *drv = bs->drv;
+
+    if (!drv->bdrv_co_pwritev_compressed) {
+        return -ENOTSUP;
+    }
+
+    return drv->bdrv_co_pwritev_compressed(bs, offset, bytes, qiov);
 }
 
 static int coroutine_fn bdrv_co_do_copy_on_readv(BlockDriverState *bs,
@@ -1315,6 +1317,8 @@ static int coroutine_fn bdrv_aligned_pwritev(BlockDriverState *bs,
     } else if (flags & BDRV_REQ_ZERO_WRITE) {
         bdrv_debug_event(bs, BLKDBG_PWRITEV_ZERO);
         ret = bdrv_co_do_pwrite_zeroes(bs, offset, bytes, flags);
+    } else if (flags & BDRV_REQ_WRITE_COMPRESSED) {
+        ret = bdrv_driver_pwritev_compressed(bs, offset, bytes, qiov);
     } else if (bytes <= max_transfer) {
         bdrv_debug_event(bs, BLKDBG_PWRITEV);
         ret = bdrv_driver_pwritev(bs, offset, bytes, qiov, flags);
@@ -1879,28 +1883,6 @@ int bdrv_is_allocated_above(BlockDriverState *top,
     return 0;
 }
 
-int bdrv_write_compressed(BlockDriverState *bs, int64_t sector_num,
-                          const uint8_t *buf, int nb_sectors)
-{
-    BlockDriver *drv = bs->drv;
-    int ret;
-
-    if (!drv) {
-        return -ENOMEDIUM;
-    }
-    if (!drv->bdrv_write_compressed) {
-        return -ENOTSUP;
-    }
-    ret = bdrv_check_request(bs, sector_num, nb_sectors);
-    if (ret < 0) {
-        return ret;
-    }
-
-    assert(QLIST_EMPTY(&bs->dirty_bitmaps));
-
-    return drv->bdrv_write_compressed(bs, sector_num, buf, nb_sectors);
-}
-
 typedef struct BdrvVmstateCo {
     BlockDriverState    *bs;
     QEMUIOVector        *qiov;
@@ -2283,11 +2265,11 @@ int coroutine_fn bdrv_co_flush(BlockDriverState *bs)
     int current_gen = bs->write_gen;
 
     /* Wait until any previous flushes are completed */
-    while (bs->flush_started_gen != bs->flushed_gen) {
+    while (bs->active_flush_req != NULL) {
         qemu_co_queue_wait(&bs->flush_queue);
     }
 
-    bs->flush_started_gen = current_gen;
+    bs->active_flush_req = &req;
 
     /* Write back all layers by calling one driver function */
     if (bs->drv->bdrv_co_flush) {
@@ -2357,7 +2339,9 @@ flush_parent:
 out:
     /* Notify any pending flushes that we have completed */
     bs->flushed_gen = current_gen;
-    qemu_co_queue_restart_all(&bs->flush_queue);
+    bs->active_flush_req = NULL;
+    /* Return value is ignored - it's ok if wait queue is empty */
+    qemu_co_queue_next(&bs->flush_queue);
 
     tracked_request_end(&req);
     return ret;
