@@ -3090,7 +3090,7 @@ void qmp_block_commit(bool has_job_id, const char *job_id, const char *device,
             goto out;
         }
         commit_active_start(has_job_id ? job_id : NULL, bs, base_bs, speed,
-                            on_error, block_job_cb, bs, &local_err);
+                            on_error, block_job_cb, bs, &local_err, false);
     } else {
         commit_start(has_job_id ? job_id : NULL, bs, base_bs, top_bs, speed,
                      on_error, block_job_cb, bs,
@@ -3907,7 +3907,7 @@ void qmp_x_blockdev_del(bool has_id, const char *id,
             goto out;
         }
 
-        if (!blk && !bs->monitor_list.tqe_prev) {
+        if (!blk && !QTAILQ_IN_USE(bs, monitor_list)) {
             error_setg(errp, "Node %s is not owned by the monitor",
                        bs->node_name);
             goto out;

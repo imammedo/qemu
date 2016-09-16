@@ -562,15 +562,6 @@ extern BlockDriver bdrv_file;
 extern BlockDriver bdrv_raw;
 extern BlockDriver bdrv_qcow2;
 
-/**
- * bdrv_setup_io_funcs:
- *
- * Prepare a #BlockDriver for I/O request processing by populating
- * unimplemented coroutine and AIO interfaces with generic wrapper functions
- * that fall back to implemented interfaces.
- */
-void bdrv_setup_io_funcs(BlockDriver *bdrv);
-
 int coroutine_fn bdrv_co_preadv(BdrvChild *child,
     int64_t offset, unsigned int bytes, QEMUIOVector *qiov,
     BdrvRequestFlags flags);
@@ -702,13 +693,14 @@ void commit_start(const char *job_id, BlockDriverState *bs,
  * @cb: Completion function for the job.
  * @opaque: Opaque pointer value passed to @cb.
  * @errp: Error object.
+ * @auto_complete: Auto complete the job.
  *
  */
 void commit_active_start(const char *job_id, BlockDriverState *bs,
                          BlockDriverState *base, int64_t speed,
                          BlockdevOnError on_error,
                          BlockCompletionFunc *cb,
-                         void *opaque, Error **errp);
+                         void *opaque, Error **errp, bool auto_complete);
 /*
  * mirror_start:
  * @job_id: The id of the newly-created job, or %NULL to use the

@@ -321,6 +321,7 @@ vhdx=""
 numa=""
 tcmalloc="no"
 jemalloc="no"
+replication="yes"
 
 # parse CC options first
 for opt do
@@ -389,7 +390,11 @@ sdl2_config="${SDL2_CONFIG-${cross_prefix}sdl2-config}"
 ARFLAGS="${ARFLAGS-rv}"
 
 # default flags for all hosts
-QEMU_CFLAGS="-fno-strict-aliasing -fno-common $QEMU_CFLAGS"
+# We use -fwrapv to tell the compiler that we require a C dialect where
+# left shift of signed integers is well defined and has the expected
+# 2s-complement style results. (Both clang and gcc agree that it
+# provides these semantics.)
+QEMU_CFLAGS="-fno-strict-aliasing -fno-common -fwrapv $QEMU_CFLAGS"
 QEMU_CFLAGS="-Wall -Wundef -Wwrite-strings -Wmissing-prototypes $QEMU_CFLAGS"
 QEMU_CFLAGS="-Wstrict-prototypes -Wredundant-decls $QEMU_CFLAGS"
 QEMU_CFLAGS="-D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE $QEMU_CFLAGS"
@@ -506,8 +511,6 @@ elif check_define __arm__ ; then
   cpu="arm"
 elif check_define __aarch64__ ; then
   cpu="aarch64"
-elif check_define __hppa__ ; then
-  cpu="hppa"
 else
   cpu=$(uname -m)
 fi
@@ -1156,6 +1159,10 @@ for opt do
   ;;
   --enable-jemalloc) jemalloc="yes"
   ;;
+  --disable-replication) replication="no"
+  ;;
+  --enable-replication) replication="yes"
+  ;;
   *)
       echo "ERROR: unknown option $opt"
       echo "Try '$0 --help' for more information"
@@ -1386,6 +1393,7 @@ disabled with --disable-FEATURE, default is enabled if available:
   numa            libnuma support
   tcmalloc        tcmalloc support
   jemalloc        jemalloc support
+  replication     replication support
 
 NOTE: The object files are built at the place where configure is launched
 EOF
@@ -1794,28 +1802,19 @@ fi
 ##########################################
 # avx2 optimization requirement check
 
-
-if test "$static" = "no" ; then
-  cat > $TMPC << EOF
+cat > $TMPC << EOF
 #pragma GCC push_options
 #pragma GCC target("avx2")
 #include <cpuid.h>
 #include <immintrin.h>
-
 static int bar(void *a) {
-    return _mm256_movemask_epi8(_mm256_cmpeq_epi8(*(__m256i *)a, (__m256i){0}));
+    __m256i x = *(__m256i *)a;
+    return _mm256_testz_si256(x, x);
 }
-static void *bar_ifunc(void) {return (void*) bar;}
-int foo(void *a) __attribute__((ifunc("bar_ifunc")));
-int main(int argc, char *argv[]) { return foo(argv[0]);}
+int main(int argc, char *argv[]) { return bar(argv[0]); }
 EOF
-  if compile_object "" ; then
-      if has readelf; then
-          if readelf --syms $TMPO 2>/dev/null |grep -q "IFUNC.*foo"; then
-              avx2_opt="yes"
-          fi
-      fi
-  fi
+if compile_object "" ; then
+  avx2_opt="yes"
 fi
 
 #########################################
@@ -3015,7 +3014,7 @@ fi
 
 # g_test_trap_subprocess added in 2.38. Used by some tests.
 glib_subprocess=yes
-if ! $pkg_config --atleast-version=2.38 glib-2.0; then
+if test "$mingw32" = "yes" || ! $pkg_config --atleast-version=2.38 glib-2.0; then
     glib_subprocess=no
 fi
 
@@ -4927,6 +4926,7 @@ echo "NUMA host support $numa"
 echo "tcmalloc support  $tcmalloc"
 echo "jemalloc support  $jemalloc"
 echo "avx2 optimization $avx2_opt"
+echo "replication support $replication"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -5507,6 +5507,10 @@ if test "$have_rtnetlink" = "yes" ; then
   echo "CONFIG_RTNETLINK=y" >> $config_host_mak
 fi
 
+if test "$replication" = "yes" ; then
+  echo "CONFIG_REPLICATION=y" >> $config_host_mak
+fi
+
 # Hold two types of flag:
 #   CONFIG_THREAD_SETNAME_BYTHREAD  - we've got a way of setting the name on
 #                                     a thread we have a handle to
@@ -5892,9 +5896,6 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
   ;;
   cris)
     disas_config "CRIS"
-  ;;
-  hppa)
-    disas_config "HPPA"
   ;;
   i386|x86_64|x32)
     disas_config "I386"
