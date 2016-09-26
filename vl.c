@@ -25,6 +25,7 @@
 #include "qemu-version.h"
 #include "qemu/cutils.h"
 #include "qemu/help_option.h"
+#include "qemu/uuid.h"
 
 #ifdef CONFIG_SECCOMP
 #include "sysemu/seccomp.h"
@@ -182,10 +183,10 @@ uint8_t qemu_extra_params_fw[2];
 
 int icount_align_option;
 
-/* The bytes in qemu_uuid[] are in the order specified by RFC4122, _not_ in the
+/* The bytes in qemu_uuid are in the order specified by RFC4122, _not_ in the
  * little-endian "wire format" described in the SMBIOS 2.6 specification.
  */
-uint8_t qemu_uuid[16];
+QemuUUID qemu_uuid;
 bool qemu_uuid_set;
 
 static NotifierList exit_notifiers =
@@ -506,6 +507,43 @@ static QemuOptsList qemu_fw_cfg_opts = {
         { /* end of list */ }
     },
 };
+
+#ifdef CONFIG_LIBISCSI
+static QemuOptsList qemu_iscsi_opts = {
+    .name = "iscsi",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_iscsi_opts.head),
+    .desc = {
+        {
+            .name = "user",
+            .type = QEMU_OPT_STRING,
+            .help = "username for CHAP authentication to target",
+        },{
+            .name = "password",
+            .type = QEMU_OPT_STRING,
+            .help = "password for CHAP authentication to target",
+        },{
+            .name = "password-secret",
+            .type = QEMU_OPT_STRING,
+            .help = "ID of the secret providing password for CHAP "
+                    "authentication to target",
+        },{
+            .name = "header-digest",
+            .type = QEMU_OPT_STRING,
+            .help = "HeaderDigest setting. "
+                    "{CRC32C|CRC32C-NONE|NONE-CRC32C|NONE}",
+        },{
+            .name = "initiator-name",
+            .type = QEMU_OPT_STRING,
+            .help = "Initiator iqn name to use when connecting",
+        },{
+            .name = "timeout",
+            .type = QEMU_OPT_NUMBER,
+            .help = "Request timeout in seconds (default 0 = no timeout)",
+        },
+        { /* end of list */ }
+    },
+};
+#endif
 
 /**
  * Get machine options
@@ -3017,6 +3055,9 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_icount_opts);
     qemu_add_opts(&qemu_semihosting_config_opts);
     qemu_add_opts(&qemu_fw_cfg_opts);
+#ifdef CONFIG_LIBISCSI
+    qemu_add_opts(&qemu_iscsi_opts);
+#endif
     module_call_init(MODULE_INIT_OPTS);
 
     runstate_init();
@@ -3739,7 +3780,7 @@ int main(int argc, char **argv, char **envp)
                 cursor_hide = 0;
                 break;
             case QEMU_OPTION_uuid:
-                if(qemu_uuid_parse(optarg, qemu_uuid) < 0) {
+                if (qemu_uuid_parse(optarg, &qemu_uuid) < 0) {
                     error_report("failed to parse UUID string: wrong format");
                     exit(1);
                 }
