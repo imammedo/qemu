@@ -1,7 +1,7 @@
 /*
- * Coroutine internals
+ * QEMU IRQ/GPIO common code.
  *
- * Copyright (c) 2011 Kevin Wolf <kwolf@redhat.com>
+ * Copyright (c) 2016 Alistair Francis <alistair@alistair23.me>.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,36 +22,23 @@
  * THE SOFTWARE.
  */
 
-#ifndef QEMU_COROUTINE_INT_H
-#define QEMU_COROUTINE_INT_H
+#include "hw/irq.h"
+#include "hw/sysbus.h"
+#include "qom/object.h"
 
-#include "qemu/queue.h"
-#include "qemu/coroutine.h"
+#define TYPE_OR_IRQ "or-irq"
 
-#define COROUTINE_STACK_SIZE (1 << 20)
+#define MAX_OR_LINES      16
 
-typedef enum {
-    COROUTINE_YIELD = 1,
-    COROUTINE_TERMINATE = 2,
-    COROUTINE_ENTER = 3,
-} CoroutineAction;
+typedef struct OrIRQState qemu_or_irq;
 
-struct Coroutine {
-    CoroutineEntry *entry;
-    void *entry_arg;
-    Coroutine *caller;
-    QSLIST_ENTRY(Coroutine) pool_next;
-    size_t locks_held;
+#define OR_IRQ(obj) OBJECT_CHECK(qemu_or_irq, (obj), TYPE_OR_IRQ)
 
-    /* Coroutines that should be woken up when we yield or terminate */
-    QSIMPLEQ_HEAD(, Coroutine) co_queue_wakeup;
-    QSIMPLEQ_ENTRY(Coroutine) co_queue_next;
+struct OrIRQState {
+    DeviceState parent_obj;
+
+    qemu_irq out_irq;
+    qemu_irq *in_irqs;
+    bool levels[MAX_OR_LINES];
+    uint16_t num_lines;
 };
-
-Coroutine *qemu_coroutine_new(void);
-void qemu_coroutine_delete(Coroutine *co);
-CoroutineAction qemu_coroutine_switch(Coroutine *from, Coroutine *to,
-                                      CoroutineAction action);
-void coroutine_fn qemu_co_queue_run_restart(Coroutine *co);
-
-#endif
