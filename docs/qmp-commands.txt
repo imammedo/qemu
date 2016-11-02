@@ -554,6 +554,16 @@ Example:
 -> { "execute": "migrate_set_downtime", "arguments": { "value": 0.1 } }
 <- { "return": {} }
 
+x-colo-lost-heartbeat
+--------------------
+
+Tell COLO that heartbeat is lost, a failover or takeover is needed.
+
+Example:
+
+-> { "execute": "x-colo-lost-heartbeat" }
+<- { "return": {} }
+
 client_migrate_info
 -------------------
 
@@ -740,8 +750,11 @@ Arguments:
 - "job-id": Identifier for the newly-created block job. If omitted,
             the device name will be used. (json-string, optional)
 - "device": The device name or node-name of a root node (json-string)
-- "base": The file name of the backing image above which copying starts
-          (json-string, optional)
+- "base": The file name of the backing image above which copying starts.
+          It cannot be set if 'base-node' is also set (json-string, optional)
+- "base-node": the node name of the backing image above which copying starts.
+               It cannot be set if 'base' is also set.
+               (json-string, optional) (Since 2.8)
 - "backing-file": The backing file string to write into the active layer. This
                   filename is not validated.
 
@@ -2861,6 +2874,7 @@ Enable/Disable migration capabilities
 - "compress": use multiple compression threads to accelerate live migration
 - "events": generate events for each migration state change
 - "postcopy-ram": postcopy mode for live migration
+- "x-colo": COarse-Grain LOck Stepping (COLO) for Non-stop Service
 
 Arguments:
 
@@ -2882,6 +2896,7 @@ Query current migration capabilities
          - "compress": Multiple compression threads state (json-bool)
          - "events": Migration state change event state (json-bool)
          - "postcopy-ram": postcopy ram state (json-bool)
+         - "x-colo": COarse-Grain LOck Stepping for Non-stop Service (json-bool)
 
 Arguments:
 
@@ -2895,7 +2910,8 @@ Example:
      {"state": false, "capability": "zero-blocks"},
      {"state": false, "capability": "compress"},
      {"state": true, "capability": "events"},
-     {"state": false, "capability": "postcopy-ram"}
+     {"state": false, "capability": "postcopy-ram"},
+     {"state": false, "capability": "x-colo"}
    ]}
 
 migrate-set-parameters
@@ -2913,6 +2929,8 @@ Set migration parameters
 - "max-bandwidth": set maximum speed for migrations (in bytes/sec) (json-int)
 - "downtime-limit": set maximum tolerated downtime (in milliseconds) for
                     migrations (json-int)
+- "x-checkpoint-delay": set the delay time for periodic checkpoint (json-int)
+
 Arguments:
 
 Example:

@@ -230,6 +230,7 @@ vhost_net="no"
 vhost_scsi="no"
 vhost_vsock="no"
 kvm="no"
+colo="yes"
 rdma=""
 gprof="no"
 debug_tcg="no"
@@ -918,6 +919,10 @@ for opt do
   ;;
   --enable-kvm) kvm="yes"
   ;;
+  --disable-colo) colo="no"
+  ;;
+  --enable-colo) colo="yes"
+  ;;
   --disable-tcg-interpreter) tcg_interpreter="no"
   ;;
   --enable-tcg-interpreter) tcg_interpreter="yes"
@@ -1366,6 +1371,7 @@ disabled with --disable-FEATURE, default is enabled if available:
   fdt             fdt device tree
   bluez           bluez stack connectivity
   kvm             KVM acceleration support
+  colo            COarse-grain LOck-stepping VM for Non-stop Service
   rdma            RDMA-based migration support
   vde             support for vde network
   netmap          support for netmap network
@@ -4668,6 +4674,33 @@ if compile_prog "" "" ; then
     have_rtnetlink=yes
 fi
 
+##########################################
+# check for usable AF_VSOCK environment
+have_af_vsock=no
+cat > $TMPC << EOF
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#if !defined(AF_VSOCK)
+# error missing AF_VSOCK flag
+#endif
+#include <linux/vm_sockets.h>
+int main(void) {
+    int sock, ret;
+    struct sockaddr_vm svm;
+    socklen_t len = sizeof(svm);
+    sock = socket(AF_VSOCK, SOCK_STREAM, 0);
+    ret = getpeername(sock, (struct sockaddr *)&svm, &len);
+    if ((ret == -1) && (errno == ENOTCONN)) {
+        return 0;
+    }
+    return -1;
+}
+EOF
+if compile_prog "" "" ; then
+    have_af_vsock=yes
+fi
+
 #################################################
 # Sparc implicitly links with --relax, which is
 # incompatible with -r, so --no-relax should be
@@ -5004,6 +5037,7 @@ echo "Linux AIO support $linux_aio"
 echo "ATTR/XATTR support $attr"
 echo "Install blobs     $blobs"
 echo "KVM support       $kvm"
+echo "COLO support      $colo"
 echo "RDMA support      $rdma"
 echo "TCG interpreter   $tcg_interpreter"
 echo "fdt support       $fdt"
@@ -5639,6 +5673,10 @@ if have_backend "syslog"; then
 fi
 echo "CONFIG_TRACE_FILE=$trace_file" >> $config_host_mak
 
+if test "$colo" = "yes"; then
+  echo "CONFIG_COLO=y" >> $config_host_mak
+fi
+
 if test "$rdma" = "yes" ; then
   echo "CONFIG_RDMA=y" >> $config_host_mak
 fi
@@ -5649,6 +5687,10 @@ fi
 
 if test "$replication" = "yes" ; then
   echo "CONFIG_REPLICATION=y" >> $config_host_mak
+fi
+
+if test "$have_af_vsock" = "yes" ; then
+  echo "CONFIG_AF_VSOCK=y" >> $config_host_mak
 fi
 
 # Hold two types of flag:
