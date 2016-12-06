@@ -1860,6 +1860,7 @@ build_dsdt(GArray *table_data, BIOSLinker *linker,
     int root_bus_limit = 0xFF;
     PCIBus *bus = NULL;
     int i;
+    int opreg_offset;
 
     dsdt = init_aml_allocator();
 
@@ -2224,10 +2225,41 @@ build_dsdt(GArray *table_data, BIOSLinker *linker,
 
     /* copy AML table into ACPI tables blob and patch header there */
     g_array_append_vals(table_data, dsdt->buf->data, dsdt->buf->len);
+    opreg_offset = build_append_named_dword(table_data, "MHOR");
+
+    bios_linker_loader_add_pointer(linker,
+            ACPI_BUILD_TABLE_FILE, opreg_offset, sizeof(uint32_t),
+            ACPI_BUILD_TABLE_FILE, table_data->len - 1);
+
     build_header(linker, table_data,
-        (void *)(table_data->data + table_data->len - dsdt->buf->len),
-        "DSDT", dsdt->buf->len, 1, NULL, NULL);
+        (void *)(table_data->data + table_data->len - dsdt->buf->len - 10),
+        "DSDT", dsdt->buf->len + 10, 1, NULL, NULL);
+
     free_aml_allocator();
+
+    {
+        int dyn_load_off = table_data->len;
+        uint8_t sum = 0;
+
+        Aml *ssdt = init_aml_allocator();
+        acpi_data_push(ssdt->buf, sizeof(AcpiTableHeader));
+        method = aml_method("DYNF", 1, AML_NOTSERIALIZED);
+        aml_append(method, aml_notify(aml_name("\\_SB.MHPC.MP00"), aml_arg(0)));
+        aml_append(ssdt, method);
+        g_array_append_vals(table_data, ssdt->buf->data, ssdt->buf->len);
+
+        build_header(linker, table_data,
+             (void *)(table_data->data + dyn_load_off),
+             "SSDT", table_data->len - dyn_load_off, 1, NULL, "MTFYNM");
+
+        for (i =0; i < table_data->len - dyn_load_off; i++) {
+            sum += *(table_data->data + dyn_load_off + i);
+        }
+        fprintf(stderr, "SUM: 0x%x\n", sum);
+        //write(2, table_data->data + dyn_load_off, table_data->len - dyn_load_off);
+
+        free_aml_allocator();
+    }
 }
 
 static void

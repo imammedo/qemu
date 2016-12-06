@@ -702,12 +702,58 @@ void build_memory_hotplug_aml(Aml *table, uint32_t nr_mem,
          *     If (LEqual(Arg0, 0x00)) {Notify(MP00, Arg1)} ... }
          */
         method = aml_method(MEMORY_SLOT_NOTIFY_METHOD, 2, AML_NOTSERIALIZED);
-        for (i = 0; i < nr_mem; i++) {
-            ifctx = aml_if(aml_equal(aml_arg(0), aml_int(i)));
-            aml_append(ifctx,
-                aml_notify(aml_name("MP%.02X", i), aml_arg(1))
-            );
-            aml_append(method, ifctx);
+        {
+#define ACPI_CHKSUM_OFFSET 9
+#define ACPI_DYN_REG_SIZE 0x3C
+             Aml *while_ctx;
+             Aml *idx = aml_local(0);
+             Aml *sum = aml_local(1);
+             Aml *ssdt_buf = aml_local(2);
+             Aml *chr = aml_local(4);
+             Aml *dbhandle = aml_local(5);
+             Aml *opbase = aml_local(6);
+             Aml *chksum = aml_index(ssdt_buf, aml_int(ACPI_CHKSUM_OFFSET));
+
+             aml_append(method, aml_add(aml_name("MHOR"), aml_int(1), opbase));
+             aml_append(method, aml_operation_region("DNOP", AML_SYSTEM_MEMORY, opbase, ACPI_DYN_REG_SIZE));
+             field = aml_field("DNOP", AML_BYTE_ACC, AML_NOLOCK, AML_WRITE_AS_ZEROS);
+             aml_append(field, aml_named_field("MMMM", ACPI_DYN_REG_SIZE * 8));
+             aml_append(method, field);
+
+             /*
+                Windows can't use Index on BufferField
+                so it has to be copied into a local buffer
+             */
+             aml_append(method, aml_store(aml_name("MMMM"), ssdt_buf));
+
+             /* set  */
+             aml_append(method, aml_add(
+                 aml_int(0x30) /* '0' */,
+                 aml_and(aml_int(0xf), aml_shiftright(aml_arg(0), aml_int(4), NULL), NULL),
+                 chr
+             ));
+             aml_append(method, aml_store(chr, aml_index(ssdt_buf, aml_int(ACPI_DYN_REG_SIZE - 3))));
+             aml_append(method, aml_add(
+                 aml_int(0x30) /* '0' */,
+                 aml_and(aml_int(0xf), aml_arg(0), NULL),
+                 chr
+             ));
+             aml_append(method, aml_store(chr, aml_index(ssdt_buf, aml_int(ACPI_DYN_REG_SIZE - 2))));
+
+             /* update SSDT checksum */
+             aml_append(method, aml_store(aml_int(0), sum));
+             aml_append(method, aml_store(aml_int(0), idx));
+             aml_append(method, aml_store(aml_int(0), chksum));
+             while_ctx = aml_while(aml_lless(idx, aml_int(ACPI_DYN_REG_SIZE - 1)));
+             aml_append(while_ctx, aml_add(aml_derefof(aml_index(ssdt_buf, idx)), sum, sum));
+             aml_append(while_ctx, aml_increment(idx));
+             aml_append(method, while_ctx);
+             aml_append(method, aml_subtract(aml_int(0), sum, chksum));
+            // aml_append(method, aml_store(ssdt_buf, aml_name("MMMM")));
+
+             aml_append(method, aml_load(aml_name("DNOP"), dbhandle));
+             aml_append(method, aml_call1("DYNF", aml_arg(1)));
+             aml_append(method, aml_unload(dbhandle));
         }
         aml_append(dev_container, method);
     }
