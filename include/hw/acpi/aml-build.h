@@ -84,6 +84,15 @@ typedef enum {
 } AmlRegionSpace;
 
 typedef enum {
+    AML_SYSTEM_MEMORY_AS = 0X00,
+    AML_SYSTEM_IO_AS = 0X01,
+    AML_PCI_CONFIG_AS = 0X02,
+    AML_EMBEDDED_CONTROLLER_AS = 0X03,
+    AML_SMBUS_AS = 0X4,
+    AML_FFIXED_HW_AS = 0X7F,
+} AmlAddressSpace;
+
+typedef enum {
     AML_MEMORY_RANGE = 0,
     AML_IO_RANGE = 1,
     AML_BUS_NUMBER_RANGE = 2,
@@ -336,6 +345,11 @@ Aml *aml_qword_memory(AmlDecode dec, AmlMinFixed min_fixed,
                       uint64_t len);
 Aml *aml_dma(AmlDmaType typ, AmlDmaBusMaster bm, AmlTransferSize sz,
              uint8_t channel);
+Aml *aml_register(AmlAddressSpace as,
+                  uint8_t bit_width,
+                  uint8_t bit_offset,
+                  uint64_t address,
+                  uint8_t access_size);
 Aml *aml_sleep(uint64_t msec);
 
 /* Block AML object primitives */

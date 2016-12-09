@@ -857,6 +857,39 @@ Aml *aml_irq_no_flags(uint8_t irq)
     return var;
 }
 
+/*
+ * ACPI: 2.0: 16.2.4.16 ASL Macro for Generic Register Descriptor
+ *
+ * access_size comes from:
+ *     ACPI 3.0: 17.5.98 Register (Generic Register Resource Descriptor Macro)
+ */
+Aml *aml_register(AmlAddressSpace as,
+                  uint8_t bit_width,
+                  uint8_t bit_offset,
+                  uint64_t address,
+                  uint8_t access_size)
+{
+    Aml *var = aml_alloc();
+
+    build_append_byte(var->buf, 0x82);        /* Generic Register Descriptor */
+    build_append_byte(var->buf, 0x0C);        /* Length, bits[7:0] */
+    build_append_byte(var->buf, 0x0);         /* Length, bits[15:8] */
+    build_append_byte(var->buf, as);          /* Address Space ID */
+    build_append_byte(var->buf, bit_width);   /* Register Bit Width */
+    build_append_byte(var->buf, bit_offset);  /* Register Bit Offset */
+    build_append_byte(var->buf, access_size); /* Access Size */
+    /* Register Address */
+    build_append_byte(var->buf, extract64(address, 0, 8));  /* bits[7:0] */
+    build_append_byte(var->buf, extract64(address, 8, 8));  /* bits[15:8] */
+    build_append_byte(var->buf, extract64(address, 16, 8)); /* bits[23:16] */
+    build_append_byte(var->buf, extract64(address, 24, 8)); /* bits[31:24] */
+    build_append_byte(var->buf, extract64(address, 32, 8)); /* bits[39:32] */
+    build_append_byte(var->buf, extract64(address, 40, 8)); /* bits[47:40] */
+    build_append_byte(var->buf, extract64(address, 48, 8)); /* bits[55:48] */
+    build_append_byte(var->buf, extract64(address, 56, 8)); /* bits[63:56] */
+    return var;
+}
+
 /* ACPI 1.0b: 16.2.5.4 Type 2 Opcodes Encoding: DefLNot */
 Aml *aml_lnot(Aml *arg)
 {
