@@ -2551,10 +2551,14 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         break;
     case 5:
         /* mwait info: needed for Core compatibility */
-        *eax = 0; /* Smallest monitor-line size in bytes */
-        *ebx = 0; /* Largest monitor-line size in bytes */
-        *ecx = CPUID_MWAIT_EMX | CPUID_MWAIT_IBE;
-        *edx = 0;
+        if (kvm_enabled()) {
+            host_cpuid(index, 0, eax, ebx, ecx, edx);
+        } else {
+            *eax = 0; /* Smallest monitor-line size in bytes */
+            *ebx = 0; /* Largest monitor-line size in bytes */
+            *ecx = CPUID_MWAIT_EMX | CPUID_MWAIT_IBE;
+            *edx = 0;
+        }
         break;
     case 6:
         /* Thermal and Power Leaf */
