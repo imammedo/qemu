@@ -1975,6 +1975,43 @@ static Aml *build_q35_osc_method(void)
     return method;
 }
 
+/*
+ * Implements only FFH based method as it allows
+ * telling guest to use MWAIT as described in following spec:
+ *
+ * Intel® Processor Vendor-Specific ACPI Interface Specification
+ * December 2014, Revision 007
+ * Table 4. _CST FFH GAS Field Encoding
+ */
+static Aml *build_cst_package(PCMachineState *pcms)
+{
+    int i;
+    Aml *crs;
+    Aml *pkg;
+    int cs_num = sizeof(pcms->cstate)/sizeof(pcms->cstate[0]);
+
+    pkg = aml_package(cs_num + 1); /* # of ACPI Cx states + state count */
+    aml_append(pkg, aml_int(cs_num)); /* # of ACPI Cx states */
+
+    for (i = 0; i < cs_num; i++) {
+        Aml *cstate = aml_package(4);
+
+        crs = aml_resource_template();
+        aml_append(crs, aml_register(AML_FFIXED_HW_AS,
+            0x1,
+            0x2 /* Class: Native C State Instruction */,
+            pcms->cstate[i].hint, /* mwait EAX hint */
+            0x1 /* OSPM should use Bus Master avoidance */));
+        aml_append(cstate, crs);
+        aml_append(cstate, aml_int(i + 1)); /* Cx ACPI state */
+        aml_append(cstate, aml_int(pcms->cstate[i].latency)); /* Latency */
+        aml_append(cstate, aml_int(0));/* Power */
+        aml_append(pkg, cstate);
+    }
+
+    return pkg;
+}
+
 static void
 build_dsdt(GArray *table_data, BIOSLinker *linker,
            AcpiPmInfo *pm, AcpiMiscInfo *misc,
@@ -2044,7 +2081,9 @@ build_dsdt(GArray *table_data, BIOSLinker *linker,
         build_legacy_cpu_hotplug_aml(dsdt, machine, pm->cpu_hp_io_base);
     } else {
         CPUHotplugFeatures opts = {
-            .apci_1_compatible = true, .has_legacy_cphp = true
+            .apci_1_compatible = true, .has_legacy_cphp = true,
+            .cstates = pcms->cstates == ON_OFF_AUTO_ON ?
+                 build_cst_package(pcms) : NULL,
         };
         build_cpus_aml(dsdt, machine, opts, pm->cpu_hp_io_base,
                        "\\_SB.PCI0", "\\_GPE._E02");

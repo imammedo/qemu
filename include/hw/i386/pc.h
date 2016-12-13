@@ -33,6 +33,11 @@
 #define kvm_ioapic_in_kernel()   0
 #endif
 
+typedef struct PCCstate {
+    uint32_t latency;
+    uint32_t hint;
+} PCCstate;
+
 /**
  * PCMachineState:
  * @acpi_dev: link to ACPI PM device that performs ACPI hotplug handling
@@ -60,6 +65,7 @@ struct PCMachineState {
     OnOffAuto vmport;
     OnOffAuto smm;
     OnOffAuto cstates;
+    PCCstate cstate[2];
 
     AcpiNVDIMMState acpi_nvdimm_state;
 

@@ -2123,6 +2123,70 @@ static void pc_machine_set_cstates(Object *obj, Visitor *v, const char *name,
     visit_type_OnOffAuto(v, name, &pcms->cstates, errp);
 }
 
+static void pc_machine_set_c1_latency(Object *obj, Visitor *v,
+                                      const char *name, void *opaque,
+                                      Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+    Error *error = NULL;
+    uint64_t value;
+
+    visit_type_size(v, name, &value, &error);
+    if (error) {
+        error_propagate(errp, error);
+        return;
+    }
+    pcms->cstate[0].latency = value;
+}
+
+static void pc_machine_set_c1_hint(Object *obj, Visitor *v,
+                                   const char *name, void *opaque,
+                                   Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+    Error *error = NULL;
+    uint64_t value;
+
+    visit_type_size(v, name, &value, &error);
+    if (error) {
+        error_propagate(errp, error);
+        return;
+    }
+    pcms->cstate[0].hint = value;
+}
+
+static void pc_machine_set_c2_latency(Object *obj, Visitor *v,
+                                      const char *name, void *opaque,
+                                      Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+    Error *error = NULL;
+    uint64_t value;
+
+    visit_type_size(v, name, &value, &error);
+    if (error) {
+        error_propagate(errp, error);
+        return;
+    }
+    pcms->cstate[1].latency = value;
+}
+
+static void pc_machine_set_c2_hint(Object *obj, Visitor *v,
+                                   const char *name, void *opaque,
+                                   Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+    Error *error = NULL;
+    uint64_t value;
+
+    visit_type_size(v, name, &value, &error);
+    if (error) {
+        error_propagate(errp, error);
+        return;
+    }
+    pcms->cstate[1].hint = value;
+}
+
 bool pc_machine_is_smm_enabled(PCMachineState *pcms)
 {
     bool smm_available = false;
@@ -2357,6 +2421,22 @@ static void pc_machine_class_init(ObjectClass *oc, void *data)
         NULL, NULL, &error_abort);
     object_class_property_set_description(oc, PC_MACHINE_CSTATES,
         "Enable CSTATES (pc & q35)", &error_abort);
+
+    object_class_property_add(oc, "c1-latency", "int",
+        NULL, pc_machine_set_c1_latency,
+        NULL, NULL, &error_abort);
+
+    object_class_property_add(oc, "c1-hint", "int",
+        NULL, pc_machine_set_c1_hint,
+        NULL, NULL, &error_abort);
+
+    object_class_property_add(oc, "c2-latency", "int",
+        NULL, pc_machine_set_c2_latency,
+        NULL, NULL, &error_abort);
+
+    object_class_property_add(oc, "c2-hint", "int",
+        NULL, pc_machine_set_c2_hint,
+        NULL, NULL, &error_abort);
 }
 
 static const TypeInfo pc_machine_info = {

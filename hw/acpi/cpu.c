@@ -502,6 +502,14 @@ void build_cpus_aml(Aml *table, MachineState *machine, CPUHotplugFeatures opts,
         }
         aml_append(cpus_dev, method);
 
+        if (opts.cstates) {
+            method = aml_method("CCST", 0, AML_NOTSERIALIZED);
+            {
+                aml_append(method, aml_return(opts.cstates));
+            }
+            aml_append(cpus_dev, method);
+        }
+
         /* build Processor object for each processor */
         for (i = 0; i < arch_ids->len; i++) {
             int j;
@@ -563,6 +571,11 @@ void build_cpus_aml(Aml *table, MachineState *machine, CPUHotplugFeatures opts,
                 aml_append(dev, aml_name_decl("_PXM", aml_int(j)));
             }
 
+            if (opts.cstates) {
+                method = aml_method("_CST", 0, AML_NOTSERIALIZED);
+                aml_append(method, aml_return(aml_call0("CCST")));
+                aml_append(dev, method);
+            }
             aml_append(cpus_dev, dev);
         }
     }
