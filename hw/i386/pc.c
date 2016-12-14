@@ -2102,6 +2102,23 @@ static void pc_machine_set_vmport(Object *obj, Visitor *v, const char *name,
     visit_type_OnOffAuto(v, name, &pcms->vmport, errp);
 }
 
+static void pc_machine_get_cstates(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+    OnOffAuto cstates = pcms->cstates;
+
+    visit_type_OnOffAuto(v, name, &cstates, errp);
+}
+
+static void pc_machine_set_cstates(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+
+    visit_type_OnOffAuto(v, name, &pcms->cstates, errp);
+}
+
 bool pc_machine_is_smm_enabled(PCMachineState *pcms)
 {
     bool smm_available = false;
@@ -2165,6 +2182,7 @@ static void pc_machine_initfn(Object *obj)
     pcms->max_ram_below_4g = 0; /* use default */
     pcms->smm = ON_OFF_AUTO_AUTO;
     pcms->vmport = ON_OFF_AUTO_AUTO;
+    pcms->cstates = ON_OFF_AUTO_AUTO;
     /* nvdimm is disabled on default. */
     pcms->acpi_nvdimm_state.is_enabled = false;
     /* acpi build is enabled by default if machine supports it */
@@ -2329,6 +2347,12 @@ static void pc_machine_class_init(ObjectClass *oc, void *data)
 
     object_class_property_add_bool(oc, PC_MACHINE_NVDIMM,
         pc_machine_get_nvdimm, pc_machine_set_nvdimm, &error_abort);
+
+    object_class_property_add(oc, PC_MACHINE_CSTATES, "OnOffAuto",
+        pc_machine_get_cstates, pc_machine_set_cstates,
+        NULL, NULL, &error_abort);
+    object_class_property_set_description(oc, PC_MACHINE_CSTATES,
+        "Enable CSTATES (pc & q35)", &error_abort);
 }
 
 static const TypeInfo pc_machine_info = {

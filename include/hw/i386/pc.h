@@ -59,6 +59,7 @@ struct PCMachineState {
     uint64_t max_ram_below_4g;
     OnOffAuto vmport;
     OnOffAuto smm;
+    OnOffAuto cstates;
 
     AcpiNVDIMMState acpi_nvdimm_state;
 
@@ -88,6 +89,7 @@ struct PCMachineState {
 #define PC_MACHINE_VMPORT           "vmport"
 #define PC_MACHINE_SMM              "smm"
 #define PC_MACHINE_NVDIMM           "nvdimm"
+#define PC_MACHINE_CSTATES          "cstates"
 
 /**
  * PCMachineClass:
