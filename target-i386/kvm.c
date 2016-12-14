@@ -104,6 +104,7 @@ static int has_xcrs;
 static int has_pit_state2;
 
 static bool has_msr_mcg_ext_ctl;
+static bool has_native_mwait;
 
 static struct kvm_cpuid2 *cpuid_cache;
 
@@ -345,6 +346,13 @@ uint32_t kvm_arch_get_supported_cpuid(KVMState *s, uint32_t function,
          */
         if (!kvm_irqchip_in_kernel()) {
             ret &= ~CPUID_EXT_X2APIC;
+        }
+
+        /* mwait isn't reported by GET_SUPPORTED_CPUID, enable it manually
+         * if host supports it and user has asked for it
+         */
+        if (has_native_mwait) {
+            ret |= CPUID_EXT_MONITOR;
         }
     } else if (function == 6 && reg == R_EAX) {
         ret |= CPUID_6_EAX_ARAT; /* safe to allow because of emulated APIC */
@@ -1167,6 +1175,7 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
     uint64_t shadow_mem;
     int ret;
     struct utsname utsname;
+    PCMachineState *pcms = PC_MACHINE(ms);
 
 #ifdef KVM_CAP_XSAVE
     has_xsave = kvm_check_extension(s, KVM_CAP_XSAVE);
@@ -1179,6 +1188,15 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
 #ifdef KVM_CAP_PIT_STATE2
     has_pit_state2 = kvm_check_extension(s, KVM_CAP_PIT_STATE2);
 #endif
+
+    if (pcms->cstates == ON_OFF_AUTO_ON) {
+        ret = kvm_vm_enable_cap(s, KVM_CAP_NATIVE_MWAIT, 0);
+        if (ret) {
+            error_report("Could not enable native mwait mode.");
+            exit(1);
+        }
+        has_native_mwait = true;
+    }
 
     ret = kvm_get_supported_msrs(s);
     if (ret < 0) {

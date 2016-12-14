@@ -1263,6 +1263,10 @@ void pc_machine_done(Notifier *notifier, void *data)
         }
     }
 
+    if (!kvm_enabled() && pcms->cstates == ON_OFF_AUTO_ON) {
+            error_report("Feature '-machine cstates=on' requires KVM");
+            exit(EXIT_FAILURE);
+    }
     acpi_setup();
     if (pcms->fw_cfg) {
         pc_build_smbios(pcms->fw_cfg);
