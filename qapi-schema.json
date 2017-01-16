@@ -3221,6 +3221,9 @@
 # @unavailable-features: #optional List of properties that prevent
 #                        the CPU model from running in the current
 #                        host. (since 2.8)
+# @typename: Type name that can be used as argument to @device-list-properties,
+#            to introspect properties configurable using -cpu or -global.
+#            (since 2.9)
 #
 # @unavailable-features is a list of QOM property names that
 # represent CPU model attributes that prevent the CPU from running.
@@ -3242,7 +3245,7 @@
 ##
 { 'struct': 'CpuDefinitionInfo',
   'data': { 'name': 'str', '*migration-safe': 'bool', 'static': 'bool',
-            '*unavailable-features': [ 'str' ] } }
+            '*unavailable-features': [ 'str' ], 'typename': 'str' } }
 
 ##
 # @query-cpu-definitions:
@@ -3618,6 +3621,9 @@
 # @kp_comma: since 2.4
 # @kp_equals: since 2.6
 # @power: since 2.6
+# @hiragana: since 2.9
+# @henkan: since 2.9
+# @yen: since 2.9
 #
 # An enumeration of key name.
 #
@@ -3642,7 +3648,8 @@
             'kp_9', 'less', 'f11', 'f12', 'print', 'home', 'pgup', 'pgdn', 'end',
             'left', 'up', 'down', 'right', 'insert', 'delete', 'stop', 'again',
             'props', 'undo', 'front', 'copy', 'open', 'paste', 'find', 'cut',
-            'lf', 'help', 'meta_l', 'meta_r', 'compose', 'pause', 'ro',
+            'lf', 'help', 'meta_l', 'meta_r', 'compose', 'pause',
+            'ro', 'hiragana', 'henkan', 'yen',
             'kp_comma', 'kp_equals', 'power' ] }
 
 ##
@@ -4453,6 +4460,8 @@
 #
 # Information about memory backend
 #
+# @id: #optional backend's ID if backend has 'id' property (since 2.9)
+#
 # @size: memory backend size
 #
 # @merge: enables or disables memory merge support
@@ -4469,6 +4478,7 @@
 ##
 { 'struct': 'Memdev',
   'data': {
+    '*id':        'str',
     'size':       'size',
     'merge':      'bool',
     'dump':       'bool',

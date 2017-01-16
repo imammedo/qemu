@@ -5214,6 +5214,7 @@ static void arm_cpu_add_definition(gpointer data, gpointer user_data)
     info = g_malloc0(sizeof(*info));
     info->name = g_strndup(typename,
                            strlen(typename) - strlen("-" TYPE_ARM_CPU));
+    info->q_typename = g_strdup(typename);
 
     entry = g_malloc0(sizeof(*entry));
     entry->value = info;
@@ -5723,11 +5724,6 @@ uint32_t HELPER(uxtb16)(uint32_t x)
     res = (uint16_t)(uint8_t)x;
     res |= (uint32_t)(uint8_t)(x >> 16) << 16;
     return res;
-}
-
-uint32_t HELPER(clz)(uint32_t x)
-{
-    return clz32(x);
 }
 
 int32_t HELPER(sdiv)(int32_t num, int32_t den)
