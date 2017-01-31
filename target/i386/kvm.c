@@ -710,6 +710,7 @@ int kvm_arch_init_vcpu(CPUState *cs)
     uint32_t signature[3];
     int kvm_base = KVM_CPUID_SIGNATURE;
     int r;
+    Error *local_err = NULL;
 
     memset(&cpuid_data, 0, sizeof(cpuid_data));
 
@@ -963,26 +964,27 @@ int kvm_arch_init_vcpu(CPUState *cs)
         has_msr_mcg_ext_ctl = has_msr_feature_control = true;
     }
 
-    c = cpuid_find_entry(&cpuid_data.cpuid, 0x80000007, 0);
-    if (c && (c->edx & 1<<8) && invtsc_mig_blocker == NULL) {
-        /* for migration */
-        error_setg(&invtsc_mig_blocker,
-                   "State blocked by non-migratable CPU device"
-                   " (invtsc flag)");
-        migrate_add_blocker(invtsc_mig_blocker);
-        /* for savevm */
-        vmstate_x86_cpu.unmigratable = 1;
-    }
-
-    cpuid_data.cpuid.padding = 0;
-    r = kvm_vcpu_ioctl(cs, KVM_SET_CPUID2, &cpuid_data);
-    if (r) {
-        return r;
+    if (!env->user_tsc_khz) {
+        if ((env->features[FEAT_8000_0007_EDX] & CPUID_APM_INVTSC) &&
+            invtsc_mig_blocker == NULL) {
+            /* for migration */
+            error_setg(&invtsc_mig_blocker,
+                       "State blocked by non-migratable CPU device"
+                       " (invtsc flag)");
+            r = migrate_add_blocker(invtsc_mig_blocker, &local_err);
+            if (local_err) {
+                error_report_err(local_err);
+                error_free(invtsc_mig_blocker);
+                goto fail;
+            }
+            /* for savevm */
+            vmstate_x86_cpu.unmigratable = 1;
+        }
     }
 
     r = kvm_arch_set_tsc_khz(cs);
     if (r < 0) {
-        return r;
+        goto fail;
     }
 
     /* vcpu's TSC frequency is either specified by user, or following
@@ -999,6 +1001,36 @@ int kvm_arch_init_vcpu(CPUState *cs)
         }
     }
 
+    if (cpu->vmware_cpuid_freq
+        /* Guests depend on 0x40000000 to detect this feature, so only expose
+         * it if KVM exposes leaf 0x40000000. (Conflicts with Hyper-V) */
+        && cpu->expose_kvm
+        && kvm_base == KVM_CPUID_SIGNATURE
+        /* TSC clock must be stable and known for this feature. */
+        && ((env->features[FEAT_8000_0007_EDX] & CPUID_APM_INVTSC)
+            || env->user_tsc_khz != 0)
+        && env->tsc_khz != 0) {
+
+        c = &cpuid_data.entries[cpuid_i++];
+        c->function = KVM_CPUID_SIGNATURE | 0x10;
+        c->eax = env->tsc_khz;
+        /* LAPIC resolution of 1ns (freq: 1GHz) is hardcoded in KVM's
+         * APIC_BUS_CYCLE_NS */
+        c->ebx = 1000000;
+        c->ecx = c->edx = 0;
+
+        c = cpuid_find_entry(&cpuid_data.cpuid, kvm_base, 0);
+        c->eax = MAX(c->eax, KVM_CPUID_SIGNATURE | 0x10);
+    }
+
+    cpuid_data.cpuid.nent = cpuid_i;
+
+    cpuid_data.cpuid.padding = 0;
+    r = kvm_vcpu_ioctl(cs, KVM_SET_CPUID2, &cpuid_data);
+    if (r) {
+        goto fail;
+    }
+
     if (has_xsave) {
         env->kvm_xsave_buf = qemu_memalign(4096, sizeof(struct kvm_xsave));
     }
@@ -1009,6 +1041,10 @@ int kvm_arch_init_vcpu(CPUState *cs)
     }
 
     return 0;
+
+ fail:
+    migrate_del_blocker(invtsc_mig_blocker);
+    return r;
 }
 
 void kvm_arch_reset_vcpu(X86CPU *cpu)

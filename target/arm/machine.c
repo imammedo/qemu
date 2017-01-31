@@ -17,7 +17,8 @@ static bool vfp_needed(void *opaque)
     return arm_feature(env, ARM_FEATURE_VFP);
 }
 
-static int get_fpscr(QEMUFile *f, void *opaque, size_t size)
+static int get_fpscr(QEMUFile *f, void *opaque, size_t size,
+                     VMStateField *field)
 {
     ARMCPU *cpu = opaque;
     CPUARMState *env = &cpu->env;
@@ -27,12 +28,14 @@ static int get_fpscr(QEMUFile *f, void *opaque, size_t size)
     return 0;
 }
 
-static void put_fpscr(QEMUFile *f, void *opaque, size_t size)
+static int put_fpscr(QEMUFile *f, void *opaque, size_t size,
+                     VMStateField *field, QJSON *vmdesc)
 {
     ARMCPU *cpu = opaque;
     CPUARMState *env = &cpu->env;
 
     qemu_put_be32(f, vfp_get_fpscr(env));
+    return 0;
 }
 
 static const VMStateInfo vmstate_fpscr = {
@@ -96,15 +99,19 @@ static bool m_needed(void *opaque)
 
 static const VMStateDescription vmstate_m = {
     .name = "cpu/m",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 3,
+    .minimum_version_id = 3,
     .needed = m_needed,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT32(env.v7m.other_sp, ARMCPU),
         VMSTATE_UINT32(env.v7m.vecbase, ARMCPU),
         VMSTATE_UINT32(env.v7m.basepri, ARMCPU),
         VMSTATE_UINT32(env.v7m.control, ARMCPU),
-        VMSTATE_INT32(env.v7m.current_sp, ARMCPU),
+        VMSTATE_UINT32(env.v7m.ccr, ARMCPU),
+        VMSTATE_UINT32(env.v7m.cfsr, ARMCPU),
+        VMSTATE_UINT32(env.v7m.hfsr, ARMCPU),
+        VMSTATE_UINT32(env.v7m.dfsr, ARMCPU),
+        VMSTATE_UINT32(env.v7m.mmfar, ARMCPU),
+        VMSTATE_UINT32(env.v7m.bfar, ARMCPU),
         VMSTATE_INT32(env.v7m.exception, ARMCPU),
         VMSTATE_END_OF_LIST()
     }
@@ -163,7 +170,8 @@ static const VMStateDescription vmstate_pmsav7 = {
     }
 };
 
-static int get_cpsr(QEMUFile *f, void *opaque, size_t size)
+static int get_cpsr(QEMUFile *f, void *opaque, size_t size,
+                    VMStateField *field)
 {
     ARMCPU *cpu = opaque;
     CPUARMState *env = &cpu->env;
@@ -180,7 +188,8 @@ static int get_cpsr(QEMUFile *f, void *opaque, size_t size)
     return 0;
 }
 
-static void put_cpsr(QEMUFile *f, void *opaque, size_t size)
+static int put_cpsr(QEMUFile *f, void *opaque, size_t size,
+                    VMStateField *field, QJSON *vmdesc)
 {
     ARMCPU *cpu = opaque;
     CPUARMState *env = &cpu->env;
@@ -193,6 +202,7 @@ static void put_cpsr(QEMUFile *f, void *opaque, size_t size)
     }
 
     qemu_put_be32(f, val);
+    return 0;
 }
 
 static const VMStateInfo vmstate_cpsr = {

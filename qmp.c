@@ -531,12 +531,12 @@ DevicePropertyInfoList *qmp_device_list_properties(const char *typename,
 
     klass = object_class_dynamic_cast(klass, TYPE_DEVICE);
     if (klass == NULL) {
-        error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "name", TYPE_DEVICE);
+        error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "typename", TYPE_DEVICE);
         return NULL;
     }
 
     if (object_class_is_abstract(klass)) {
-        error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "name",
+        error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "typename",
                    "non-abstract device type");
         return NULL;
     }
@@ -616,7 +616,7 @@ void qmp_add_client(const char *protocol, const char *fdname,
                     bool has_skipauth, bool skipauth, bool has_tls, bool tls,
                     Error **errp)
 {
-    CharDriverState *s;
+    Chardev *s;
     int fd;
 
     fd = monitor_get_fd(cur_mon, fdname, errp);
