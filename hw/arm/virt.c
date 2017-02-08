@@ -1235,7 +1235,6 @@ static uint64_t virt_idx2mp_affinity(VirtMachineState *vms, int idx)
 static void machvirt_init(MachineState *machine)
 {
     VirtMachineState *vms = VIRT_MACHINE(machine);
-    VirtMachineClass *vmc = VIRT_MACHINE_GET_CLASS(machine);
     MachineClass *mc = MACHINE_GET_CLASS(machine);
     qemu_irq pic[NUM_IRQS];
     MemoryRegion *sysmem = get_system_memory();
@@ -1370,41 +1369,6 @@ static void machvirt_init(MachineState *machine)
         cpuobj = object_new(typename);
         object_property_set_int(cpuobj, machine->possible_cpus->cpus[n].arch_id,
                                 "mp-affinity", NULL);
-
-        if (!vms->secure) {
-            object_property_set_bool(cpuobj, false, "has_el3", NULL);
-        }
-
-        if (!vms->virt && object_property_find(cpuobj, "has_el2", NULL)) {
-            object_property_set_bool(cpuobj, false, "has_el2", NULL);
-        }
-
-        if (vms->psci_conduit != QEMU_PSCI_CONDUIT_DISABLED) {
-            object_property_set_int(cpuobj, vms->psci_conduit,
-                                    "psci-conduit", NULL);
-
-            /* Secondary CPUs start in PSCI powered-down state */
-            if (n > 0) {
-                object_property_set_bool(cpuobj, true,
-                                         "start-powered-off", NULL);
-            }
-        }
-
-        if (vmc->no_pmu && object_property_find(cpuobj, "pmu", NULL)) {
-            object_property_set_bool(cpuobj, false, "pmu", NULL);
-        }
-
-        if (object_property_find(cpuobj, "reset-cbar", NULL)) {
-            object_property_set_int(cpuobj, vms->memmap[VIRT_CPUPERIPHS].base,
-                                    "reset-cbar", &error_abort);
-        }
-
-        object_property_set_link(cpuobj, OBJECT(sysmem), "memory",
-                                 &error_abort);
-        if (vms->secure) {
-            object_property_set_link(cpuobj, OBJECT(vms->secure_sysmem),
-                                     "secure-memory", &error_abort);
-        }
 
         object_property_set_bool(cpuobj, true, "realized", NULL);
         object_unref(cpuobj);
@@ -1558,9 +1522,123 @@ static const CPUArchIdList *virt_possible_cpu_arch_ids(MachineState *ms)
     return ms->possible_cpus;
 }
 
+static int virt_mpidr_cmp(const void *a, const void *b)
+{
+   CPUArchId *mpidr_a = (CPUArchId *)a;
+   CPUArchId *mpidr_b = (CPUArchId *)b;
+
+   return mpidr_a->arch_id - mpidr_b->arch_id;
+}
+
+static CPUArchId *virt_find_cpu_slot(MachineState *ms, uint32_t id, int *idx)
+{
+    CPUArchId mpidr_id, *found_cpu;
+
+    mpidr_id.arch_id = id;
+    found_cpu = bsearch(&mpidr_id, ms->possible_cpus->cpus,
+        ms->possible_cpus->len, sizeof(*ms->possible_cpus->cpus),
+        virt_mpidr_cmp);
+    if (found_cpu && idx) {
+        *idx = found_cpu - ms->possible_cpus->cpus;
+    }
+    return found_cpu;
+}
+
+static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
+                              DeviceState *dev, Error **errp)
+{
+    int idx;
+    CPUArchId *cpu_slot;
+    MemoryRegion *sysmem = get_system_memory();
+    VirtMachineState *vms = VIRT_MACHINE(hotplug_dev);
+    VirtMachineClass *vmc = VIRT_MACHINE_GET_CLASS(hotplug_dev);
+    uint64_t mpidr = object_property_get_int(OBJECT(dev), "mp-affinity",
+                                             &error_abort);
+
+    if (dev->hotplugged) {
+        error_setg(errp, "Invalid CPU with MPIDR hasn't been set");
+        return;
+    }
+
+    if (mpidr == ARM64_AFFINITY_INVALID) {
+        error_setg(errp, "Invalid CPU with MPIDR hasn't been set");
+        return;
+    }
+
+    cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mpidr, &idx);
+    if (!cpu_slot) {
+        /* TODO: add here user visible attributes: socket/core/thread */
+        error_setg(errp, "Invalid CPU with MPIDR %" PRIu64, mpidr);
+        return;
+    }
+
+    if (cpu_slot->cpu) {
+        error_setg(errp, "CPU[%d] with MPIDR %" PRIu64 " exists",
+                   idx, mpidr);
+        return;
+    }
+
+    if (!vms->secure) {
+        object_property_set_bool(OBJECT(dev), false, "has_el3", NULL);
+    }
+
+    if (!vms->virt && object_property_find(OBJECT(dev), "has_el2", NULL)) {
+        object_property_set_bool(OBJECT(dev), false, "has_el2", NULL);
+    }
+
+    if (vms->psci_conduit != QEMU_PSCI_CONDUIT_DISABLED) {
+        object_property_set_int(OBJECT(dev), vms->psci_conduit,
+                                "psci-conduit", NULL);
+
+        /* Secondary CPUs start in PSCI powered-down state */
+        if (idx > 0) {
+            object_property_set_bool(OBJECT(dev), true,
+                                     "start-powered-off", NULL);
+        }
+    }
+
+    if (vmc->no_pmu && object_property_find(OBJECT(dev), "pmu", NULL)) {
+        object_property_set_bool(OBJECT(dev), false, "pmu", NULL);
+    }
+
+    if (object_property_find(OBJECT(dev), "reset-cbar", NULL)) {
+        object_property_set_int(OBJECT(dev), vms->memmap[VIRT_CPUPERIPHS].base,
+                                "reset-cbar", &error_abort);
+    }
+
+    object_property_set_link(OBJECT(dev), OBJECT(sysmem), "memory",
+                             &error_abort);
+    if (vms->secure) {
+        object_property_set_link(OBJECT(dev), OBJECT(vms->secure_sysmem),
+                                 "secure-memory", &error_abort);
+    }
+}
+
+static void virt_machine_device_pre_plug_cb(HotplugHandler *hotplug_dev,
+                                            DeviceState *dev, Error **errp)
+{
+    if (object_dynamic_cast(OBJECT(dev), TYPE_CPU)) {
+        virt_cpu_pre_plug(hotplug_dev, dev, errp);
+    }
+}
+
+static HotplugHandler *virt_machine_get_hotpug_handler(MachineState *machine,
+                                                       DeviceState *dev)
+{
+    VirtMachineClass *vmc = VIRT_MACHINE_GET_CLASS(machine);
+    if (object_dynamic_cast(OBJECT(dev), TYPE_CPU)) {
+        return HOTPLUG_HANDLER(machine);
+    }
+
+    return vmc->get_hotplug_handler ?
+        vmc->get_hotplug_handler(machine, dev) : NULL;
+}
+
 static void virt_machine_class_init(ObjectClass *oc, void *data)
 {
     MachineClass *mc = MACHINE_CLASS(oc);
+    VirtMachineClass *vmc = VIRT_MACHINE_CLASS(oc);
+    HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(oc);
 
     mc->init = machvirt_init;
     /* Start max_cpus at the maximum QEMU supports. We'll further restrict
@@ -1575,6 +1653,9 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
     /* We know we will never create a pre-ARMv7 CPU which needs 1K pages */
     mc->minimum_page_bits = 12;
     mc->possible_cpu_arch_ids = virt_possible_cpu_arch_ids;
+    vmc->get_hotplug_handler = mc->get_hotplug_handler;
+    mc->get_hotplug_handler = virt_machine_get_hotpug_handler;
+    hc->pre_plug = virt_machine_device_pre_plug_cb;
 }
 
 static const TypeInfo virt_machine_info = {
@@ -1584,6 +1665,10 @@ static const TypeInfo virt_machine_info = {
     .instance_size = sizeof(VirtMachineState),
     .class_size    = sizeof(VirtMachineClass),
     .class_init    = virt_machine_class_init,
+    .interfaces = (InterfaceInfo[]) {
+         { TYPE_HOTPLUG_HANDLER },
+         { }
+    }
 };
 
 static void machvirt_machine_init(void)

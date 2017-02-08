@@ -85,6 +85,8 @@ typedef struct {
     bool no_its;
     bool no_pmu;
     bool claim_edge_triggered_timers;
+    HotplugHandler *(*get_hotplug_handler)(MachineState *machine,
+                                           DeviceState *dev);
 } VirtMachineClass;
 
 typedef struct {
