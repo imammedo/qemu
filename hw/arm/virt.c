@@ -920,7 +920,7 @@ static FWCfgState *create_fw_cfg(const VirtMachineState *vms, AddressSpace *as)
     char *nodename;
 
     fw_cfg = fw_cfg_init_mem_wide(base + 8, base, 8, base + 16, as);
-    fw_cfg_add_i16(fw_cfg, FW_CFG_NB_CPUS, (uint16_t)smp_cpus);
+    fw_cfg_add_i16(fw_cfg, FW_CFG_NB_CPUS, (uint16_t)vms->bootinfo.nb_cpus);
 
     nodename = g_strdup_printf("/fw-cfg@%" PRIx64, base);
     qemu_fdt_add_subnode(vms->fdt, nodename);
@@ -1416,7 +1416,6 @@ static void machvirt_init(MachineState *machine)
     vms->bootinfo.kernel_filename = machine->kernel_filename;
     vms->bootinfo.kernel_cmdline = machine->kernel_cmdline;
     vms->bootinfo.initrd_filename = machine->initrd_filename;
-    vms->bootinfo.nb_cpus = smp_cpus;
     vms->bootinfo.board_id = -1;
     vms->bootinfo.loader_start = vms->memmap[VIRT_MEM].base;
     vms->bootinfo.get_dtb = machvirt_dtb;
@@ -1617,11 +1616,35 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
     cs->cpu_index = idx;
 }
 
+static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+                          DeviceState *dev, Error **errp)
+{
+    CPUArchId *cpu_slot;
+    VirtMachineState *vms = VIRT_MACHINE(hotplug_dev);
+    uint64_t mpidr = object_property_get_int(OBJECT(dev), "mp-affinity",
+                                             &error_abort);
+
+    vms->bootinfo.nb_cpus++;
+    if (vms->fw_cfg) {
+        fw_cfg_modify_i16(vms->fw_cfg, FW_CFG_NB_CPUS, vms->bootinfo.nb_cpus);
+    }
+    cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mpidr, NULL);
+    cpu_slot->cpu = OBJECT(dev);
+}
+
 static void virt_machine_device_pre_plug_cb(HotplugHandler *hotplug_dev,
                                             DeviceState *dev, Error **errp)
 {
     if (object_dynamic_cast(OBJECT(dev), TYPE_CPU)) {
         virt_cpu_pre_plug(hotplug_dev, dev, errp);
+    }
+}
+
+static void virt_machine_device_plug_cb(HotplugHandler *hotplug_dev,
+                                        DeviceState *dev, Error **errp)
+{
+    if (object_dynamic_cast(OBJECT(dev), TYPE_CPU)) {
+        virt_cpu_plug(hotplug_dev, dev, errp);
     }
 }
 
@@ -1659,6 +1682,7 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
     vmc->get_hotplug_handler = mc->get_hotplug_handler;
     mc->get_hotplug_handler = virt_machine_get_hotpug_handler;
     hc->pre_plug = virt_machine_device_pre_plug_cb;
+    hc->plug = virt_machine_device_plug_cb;
 }
 
 static const TypeInfo virt_machine_info = {
