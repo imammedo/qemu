@@ -1548,6 +1548,7 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
                               DeviceState *dev, Error **errp)
 {
     int idx;
+    CPUState *cs;
     CPUArchId *cpu_slot;
     MemoryRegion *sysmem = get_system_memory();
     VirtMachineState *vms = VIRT_MACHINE(hotplug_dev);
@@ -1612,6 +1613,9 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
         object_property_set_link(OBJECT(dev), OBJECT(vms->secure_sysmem),
                                  "secure-memory", &error_abort);
     }
+
+    cs = CPU(dev);
+    cs->cpu_index = idx;
 }
 
 static void virt_machine_device_pre_plug_cb(HotplugHandler *hotplug_dev,
