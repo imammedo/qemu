@@ -1239,7 +1239,6 @@ static void machvirt_init(MachineState *machine)
     MachineClass *mc = MACHINE_GET_CLASS(machine);
     qemu_irq pic[NUM_IRQS];
     MemoryRegion *sysmem = get_system_memory();
-    MemoryRegion *secure_sysmem = NULL;
     int n, virt_max_cpus;
     MemoryRegion *ram = g_new(MemoryRegion, 1);
     const char *cpu_model = machine->cpu_model;
@@ -1336,10 +1335,10 @@ static void machvirt_init(MachineState *machine)
          * containing the system memory at low priority; any secure-only
          * devices go in at higher priority and take precedence.
          */
-        secure_sysmem = g_new(MemoryRegion, 1);
-        memory_region_init(secure_sysmem, OBJECT(machine), "secure-memory",
+        vms->secure_sysmem = g_new(MemoryRegion, 1);
+        memory_region_init(vms->secure_sysmem, OBJECT(machine), "secure-memory",
                            UINT64_MAX);
-        memory_region_add_subregion_overlap(secure_sysmem, 0, sysmem, -1);
+        memory_region_add_subregion_overlap(vms->secure_sysmem, 0, sysmem, -1);
     }
 
     create_fdt(vms);
@@ -1403,7 +1402,7 @@ static void machvirt_init(MachineState *machine)
         object_property_set_link(cpuobj, OBJECT(sysmem), "memory",
                                  &error_abort);
         if (vms->secure) {
-            object_property_set_link(cpuobj, OBJECT(secure_sysmem),
+            object_property_set_link(cpuobj, OBJECT(vms->secure_sysmem),
                                      "secure-memory", &error_abort);
         }
 
@@ -1418,7 +1417,7 @@ static void machvirt_init(MachineState *machine)
                                          machine->ram_size);
     memory_region_add_subregion(sysmem, vms->memmap[VIRT_MEM].base, ram);
 
-    create_flash(vms, sysmem, secure_sysmem ? secure_sysmem : sysmem);
+    create_flash(vms, sysmem, vms->secure_sysmem ? vms->secure_sysmem : sysmem);
 
     create_gic(vms, pic);
 
@@ -1427,8 +1426,9 @@ static void machvirt_init(MachineState *machine)
     create_uart(vms, pic, VIRT_UART, sysmem, serial_hds[0]);
 
     if (vms->secure) {
-        create_secure_ram(vms, secure_sysmem);
-        create_uart(vms, pic, VIRT_SECURE_UART, secure_sysmem, serial_hds[1]);
+        create_secure_ram(vms, vms->secure_sysmem);
+        create_uart(vms, pic, VIRT_SECURE_UART, vms->secure_sysmem,
+                    serial_hds[1]);
     }
 
     create_rtc(vms, pic);
