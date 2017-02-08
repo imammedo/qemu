@@ -1341,6 +1341,8 @@ static void machvirt_init(MachineState *machine)
     }
 
     create_fdt(vms);
+    vms->fw_cfg = create_fw_cfg(vms, &address_space_memory);
+    rom_set_fw(vms->fw_cfg);
 
     oc = cpu_class_by_name(TYPE_ARM_CPU, cpustr[0]);
     if (!oc) {
@@ -1406,9 +1408,6 @@ static void machvirt_init(MachineState *machine)
      * no backend is created the transport will just sit harmlessly idle.
      */
     create_virtio_devices(vms, pic);
-
-    vms->fw_cfg = create_fw_cfg(vms, &address_space_memory);
-    rom_set_fw(vms->fw_cfg);
 
     vms->machine_done.notify = virt_machine_done;
     qemu_add_machine_init_done_notifier(&vms->machine_done);
