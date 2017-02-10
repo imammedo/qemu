@@ -1680,6 +1680,7 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
     /* We know we will never create a pre-ARMv7 CPU which needs 1K pages */
     mc->minimum_page_bits = 12;
     mc->possible_cpu_arch_ids = virt_possible_cpu_arch_ids;
+    mc->has_hotpluggable_cpus = true;
     vmc->get_hotplug_handler = mc->get_hotplug_handler;
     mc->get_hotplug_handler = virt_machine_get_hotpug_handler;
     hc->pre_plug = virt_machine_device_pre_plug_cb;
@@ -1774,6 +1775,7 @@ static void virt_machine_2_8_options(MachineClass *mc)
      * our timers were edge-triggered, not level-triggered.
      */
     vmc->claim_edge_triggered_timers = true;
+    mc->has_hotpluggable_cpus = true;
 }
 DEFINE_VIRT_MACHINE(2, 8)
 
