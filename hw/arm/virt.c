@@ -1521,22 +1521,22 @@ static const CPUArchIdList *virt_possible_cpu_arch_ids(MachineState *ms)
     return ms->possible_cpus;
 }
 
-static int virt_mpidr_cmp(const void *a, const void *b)
+static int virt_mp_afinity_cmp(const void *a, const void *b)
 {
-   CPUArchId *mpidr_a = (CPUArchId *)a;
-   CPUArchId *mpidr_b = (CPUArchId *)b;
+   CPUArchId *mpa_a = (CPUArchId *)a;
+   CPUArchId *mpa_b = (CPUArchId *)b;
 
-   return mpidr_a->arch_id - mpidr_b->arch_id;
+   return mpa_a->arch_id - mpa_b->arch_id;
 }
 
 static CPUArchId *virt_find_cpu_slot(MachineState *ms, uint32_t id, int *idx)
 {
-    CPUArchId mpidr_id, *found_cpu;
+    CPUArchId mpa_id, *found_cpu;
 
-    mpidr_id.arch_id = id;
-    found_cpu = bsearch(&mpidr_id, ms->possible_cpus->cpus,
+    mpa_id.arch_id = id;
+    found_cpu = bsearch(&mpa_id, ms->possible_cpus->cpus,
         ms->possible_cpus->len, sizeof(*ms->possible_cpus->cpus),
-        virt_mpidr_cmp);
+        virt_mp_afinity_cmp);
     if (found_cpu && idx) {
         *idx = found_cpu - ms->possible_cpus->cpus;
     }
@@ -1552,29 +1552,29 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
     MemoryRegion *sysmem = get_system_memory();
     VirtMachineState *vms = VIRT_MACHINE(hotplug_dev);
     VirtMachineClass *vmc = VIRT_MACHINE_GET_CLASS(hotplug_dev);
-    uint64_t mpidr = object_property_get_int(OBJECT(dev), "mp-affinity",
-                                             &error_abort);
+    uint64_t mp_affinity = object_property_get_int(OBJECT(dev), "mp-affinity",
+                                                   &error_abort);
 
     if (dev->hotplugged) {
         error_setg(errp, "Invalid CPU with MPIDR hasn't been set");
         return;
     }
 
-    if (mpidr == ARM64_AFFINITY_INVALID) {
-        error_setg(errp, "Invalid CPU with MPIDR hasn't been set");
+    if (mp_affinity == ARM64_AFFINITY_INVALID) {
+        error_setg(errp, "Invalid CPU with mp-affinity hasn't been set");
         return;
     }
 
-    cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mpidr, &idx);
+    cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mp_affinity, &idx);
     if (!cpu_slot) {
         /* TODO: add here user visible attributes: socket/core/thread */
-        error_setg(errp, "Invalid CPU with MPIDR %" PRIu64, mpidr);
+        error_setg(errp, "Invalid CPU with mp-affinity %" PRIu64, mp_affinity);
         return;
     }
 
     if (cpu_slot->cpu) {
-        error_setg(errp, "CPU[%d] with MPIDR %" PRIu64 " exists",
-                   idx, mpidr);
+        error_setg(errp, "CPU[%d] with mp-affinity %" PRIu64 " exists",
+                   idx, mp_affinity);
         return;
     }
 
@@ -1622,14 +1622,14 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
 {
     CPUArchId *cpu_slot;
     VirtMachineState *vms = VIRT_MACHINE(hotplug_dev);
-    uint64_t mpidr = object_property_get_int(OBJECT(dev), "mp-affinity",
-                                             &error_abort);
+    uint64_t mp_affinity = object_property_get_int(OBJECT(dev), "mp-affinity",
+                                                   &error_abort);
 
     vms->bootinfo.nb_cpus++;
     if (vms->fw_cfg) {
         fw_cfg_modify_i16(vms->fw_cfg, FW_CFG_NB_CPUS, vms->bootinfo.nb_cpus);
     }
-    cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mpidr, NULL);
+    cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mp_affinity, NULL);
     cpu_slot->cpu = OBJECT(dev);
 }
 
