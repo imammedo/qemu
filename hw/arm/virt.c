@@ -1193,7 +1193,7 @@ void virt_machine_done(Notifier *notifier, void *data)
     virt_build_smbios(vms);
 }
 
-static uint64_t virt_idx2mp_affinity(VirtMachineState *vms, int idx)
+static uint64_t virt_core_id2mp_affinity(VirtMachineState *vms, int core_id)
 {
     uint64_t mp_affinity;
     uint8_t clustersz;
@@ -1216,8 +1216,8 @@ static uint64_t virt_idx2mp_affinity(VirtMachineState *vms, int idx)
          * purposes are to make TCG consistent (with 64-bit KVM hosts)
          * and to improve SGI efficiency.
          */
-        aff1 = idx / clustersz;
-        aff0 = idx % clustersz;
+        aff1 = core_id / clustersz;
+        aff0 = core_id % clustersz;
         mp_affinity = (aff1 << ARM_AFF1_SHIFT) | aff0;
     } else {
         /* This cpu-id-to-MPIDR affinity is used only for TCG;
@@ -1225,8 +1225,8 @@ static uint64_t virt_idx2mp_affinity(VirtMachineState *vms, int idx)
          * ([16..23]) (known as Aff2 in later ARM ARM versions), or any of
          * the higher affinity level fields, so these bits always RAZ.
          */
-        uint32_t Aff1 = idx / ARM_DEFAULT_CPUS_PER_CLUSTER;
-        uint32_t Aff0 = idx % ARM_DEFAULT_CPUS_PER_CLUSTER;
+        uint32_t Aff1 = core_id / ARM_DEFAULT_CPUS_PER_CLUSTER;
+        uint32_t Aff0 = core_id % ARM_DEFAULT_CPUS_PER_CLUSTER;
         mp_affinity = (Aff1 << ARM_AFF1_SHIFT) | Aff0;
     }
     return mp_affinity;
@@ -1513,7 +1513,9 @@ static const CPUArchIdList *virt_possible_cpu_arch_ids(MachineState *ms)
     for (n = 0; n < ms->possible_cpus->len; n++) {
         ms->possible_cpus->cpus[n].vcpus_count = 1;
         ms->possible_cpus->cpus[n].arch_id =
-            virt_idx2mp_affinity(vms, n);
+            virt_core_id2mp_affinity(vms, n);
+        ms->possible_cpus->cpus[n].props.has_core_id = true;
+        ms->possible_cpus->cpus[n].props.core_id = n;
 
         /* TODO: add 'has_node/node' here to describe
            to which node core belongs */
@@ -1549,11 +1551,14 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
     int idx;
     CPUState *cs;
     CPUArchId *cpu_slot;
+    MachineState *ms = MACHINE(hotplug_dev);
     MemoryRegion *sysmem = get_system_memory();
     VirtMachineState *vms = VIRT_MACHINE(hotplug_dev);
     VirtMachineClass *vmc = VIRT_MACHINE_GET_CLASS(hotplug_dev);
     uint64_t mp_affinity = object_property_get_int(OBJECT(dev), "mp-affinity",
                                                    &error_abort);
+    int32_t core_id = object_property_get_int(OBJECT(dev), "core-id",
+                                              &error_abort);
 
     if (dev->hotplugged) {
         error_setg(errp, "Invalid CPU with MPIDR hasn't been set");
@@ -1561,20 +1566,40 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
     }
 
     if (mp_affinity == ARM64_AFFINITY_INVALID) {
-        error_setg(errp, "Invalid CPU with mp-affinity hasn't been set");
+        if (core_id == ARM64_CORE_INVALID) {
+            error_setg(errp, "CPU core-id hasn't been set");
+            return;
+        } else if (core_id >= ms->possible_cpus->len) {
+            error_setg(errp, "Invalid CPU core-id: %u must be in range 0:%u",
+                       core_id, ms->possible_cpus->len - 1);
+            return;
+        }
+        mp_affinity = virt_core_id2mp_affinity(vms, core_id);
+        object_property_set_int(OBJECT(dev), mp_affinity, "mp-affinity",
+                                &error_abort);
+    }
+
+    if (core_id != ARM64_CORE_INVALID &&
+        mp_affinity != virt_core_id2mp_affinity(vms, core_id)) {
+        error_setg(errp, "property core-id: %d doesn't match set mp-affinity:"
+                   " 0x%" PRIu64, core_id, mp_affinity);
         return;
     }
 
     cpu_slot = virt_find_cpu_slot(MACHINE(hotplug_dev), mp_affinity, &idx);
     if (!cpu_slot) {
-        /* TODO: add here user visible attributes: socket/core/thread */
-        error_setg(errp, "Invalid CPU with mp-affinity %" PRIu64, mp_affinity);
+        error_setg(errp, "Invalid CPU[core-id: %d] with mp-affinity %" PRIu64,
+                   core_id, mp_affinity);
         return;
+    }
+    if (core_id == ARM64_CORE_INVALID) {
+        core_id = idx;
+        object_property_set_int(OBJECT(dev), idx, "core-id", &error_abort);
     }
 
     if (cpu_slot->cpu) {
-        error_setg(errp, "CPU[%d] with mp-affinity %" PRIu64 " exists",
-                   idx, mp_affinity);
+        error_setg(errp, "CPU[core-id: %d] with mp-affinity %" PRIu64 " exists",
+                   core_id, mp_affinity);
         return;
     }
 

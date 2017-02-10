@@ -86,5 +86,6 @@ void arm_gt_stimer_cb(void *opaque);
 #define ARM64_AFFINITY_MASK \
     (ARM_AFF0_MASK|ARM_AFF1_MASK|ARM_AFF2_MASK|ARM_AFF3_MASK)
 #define ARM64_AFFINITY_INVALID (~ARM64_AFFINITY_MASK)
+#define ARM64_CORE_INVALID -1
 
 #endif
