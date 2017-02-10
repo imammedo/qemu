@@ -310,6 +310,7 @@ static gchar *aarch64_gdb_arch_name(CPUState *cs)
 static void aarch64_cpu_class_init(ObjectClass *oc, void *data)
 {
     CPUClass *cc = CPU_CLASS(oc);
+    DeviceClass *dc = DEVICE_CLASS(oc);
 
     cc->cpu_exec_interrupt = arm_cpu_exec_interrupt;
     cc->set_pc = aarch64_cpu_set_pc;
@@ -318,6 +319,7 @@ static void aarch64_cpu_class_init(ObjectClass *oc, void *data)
     cc->gdb_num_core_regs = 34;
     cc->gdb_core_xml_file = "aarch64-core.xml";
     cc->gdb_arch_name = aarch64_gdb_arch_name;
+    dc->cannot_instantiate_with_device_add_yet = false;
 }
 
 static void aarch64_cpu_register(const ARMCPUInfo *info)
