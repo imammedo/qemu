@@ -47,6 +47,12 @@ QemuOptsList qemu_numa_opts = {
     .desc = { { 0 } } /* validated with OptsVisitor */
 };
 
+static enum {
+    NUMA_DISABLED, /* no numa was configured */
+    NUMA_ENABLED,  /* numa configuration is in process */
+    NUMA_COMPLETE, /* configuration is complete and can't be altered */
+} numa_is_configured;
+
 static int have_memdevs = -1;
 static int max_numa_nodeid; /* Highest specified NUMA node ID, plus one.
                              * For all nodes, nodeid < max_numa_nodeid
@@ -258,6 +264,18 @@ static
 void parse_NumaOptions(MachineState *ms, NumaOptions *object, Error **errp)
 {
     Error *err = NULL;
+
+    if (numa_is_configured == NUMA_COMPLETE) {
+        error_setg(&err, "NUMA configuration is finalized and can't be changed,"
+                   " use CLI option or set-numa-node HMP/QMP command at"
+                   " preconfig stage");
+        goto end;
+    } else if (runstate_check(RUN_STATE_PRELAUNCH)) {
+        numa_is_configured = NUMA_ENABLED;
+    } else {
+        error_setg(&err, "NUMA is not enabled at start/preconfig stage");
+        goto end;
+    }
 
     switch (object->type) {
     case NUMA_OPTIONS_TYPE_NODE:
@@ -512,6 +530,7 @@ void numa_complete_configuration(MachineState *ms)
     } else {
         numa_set_mem_node_id(0, ram_size, 0);
     }
+    numa_is_configured = NUMA_COMPLETE;
 }
 
 void parse_numa_opts(MachineState *ms)
