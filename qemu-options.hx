@@ -3514,6 +3514,21 @@ STEXI
 Run the emulation in single step mode.
 ETEXI
 
+DEF("paused", HAS_ARG, QEMU_OPTION_paused, \
+    "-paused [state=]postconf|preconf\n"
+    "                postconf: pause QEMU after machine is initialized\n"
+    "                preconf: pause QEMU before machine is initialized\n",
+    QEMU_ARCH_ALL)
+STEXI
+@item -paused
+@findex -paused
+if set enabled interactive configuration stages before machine emulation starts.
+'postconf' option value mimics -S option behaviour where machine is created
+but emulation isn't started. 'preconf' option value pauses QEMU before machine
+is created, which allows to query and configure properties affecting machine
+initialization. Use monitor/QMP command 'cont' to go to exit paused state.
+ETEXI
+
 DEF("S", 0, QEMU_OPTION_S, \
     "-S              freeze CPU at startup (use 'c' to start execution)\n",
     QEMU_ARCH_ALL)
