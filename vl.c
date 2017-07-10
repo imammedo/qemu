@@ -555,6 +555,20 @@ static QemuOptsList qemu_fw_cfg_opts = {
     },
 };
 
+static QemuOptsList qemu_paused_opts = {
+    .name = "paused",
+    .implied_opt_name = "state",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_paused_opts.head),
+    .desc = {
+        {
+            .name = "state",
+            .type = QEMU_OPT_STRING,
+            .help = "Pause state of QEMU on startup",
+        },
+        { /* end of list */ }
+    },
+};
+
 /**
  * Get machine options
  *
@@ -1689,6 +1703,11 @@ static pid_t shutdown_pid;
 static int powerdown_requested;
 static int debug_requested;
 static int suspend_requested;
+static enum {
+    PRECONFIG_CONT = 0,
+    PRECONFIG_PAUSE,
+    PRECONFIG_SKIP,
+} preconfig_requested;
 static WakeupReason wakeup_reason;
 static NotifierList powerdown_notifiers =
     NOTIFIER_LIST_INITIALIZER(powerdown_notifiers);
@@ -1771,6 +1790,11 @@ static int qemu_debug_requested(void)
     int r = debug_requested;
     debug_requested = 0;
     return r;
+}
+
+void qemu_exit_preconfig_request(void)
+{
+    preconfig_requested = PRECONFIG_CONT;
 }
 
 /*
@@ -1939,6 +1963,12 @@ static bool main_loop_should_exit(void)
     RunState r;
     ShutdownCause request;
 
+    if (runstate_check(RUN_STATE_PRELAUNCH)) {
+        if (preconfig_requested == PRECONFIG_CONT) {
+            preconfig_requested = PRECONFIG_SKIP;
+            return true;
+        }
+    }
     if (qemu_debug_requested()) {
         vm_stop(RUN_STATE_DEBUG);
     }
@@ -3177,6 +3207,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_icount_opts);
     qemu_add_opts(&qemu_semihosting_config_opts);
     qemu_add_opts(&qemu_fw_cfg_opts);
+    qemu_add_opts(&qemu_paused_opts);
     module_call_init(MODULE_INIT_OPTS);
 
     runstate_init();
@@ -3845,6 +3876,26 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 break;
+            case QEMU_OPTION_paused:
+                {
+                    const char *value;
+
+                    opts = qemu_opts_parse_noisily(qemu_find_opts("paused"),
+                                                   optarg, true);
+                    if (opts == NULL) {
+                        exit(1);
+                    }
+                    value = qemu_opt_get(opts, "state");
+                    if (!strcmp(value, "postconf")) {
+                        autostart = 0;
+                    } else if (!strcmp(value, "preconf")) {
+                        preconfig_requested = PRECONFIG_PAUSE;
+                    } else {
+                        error_report("incomplete '-paused' option\n");
+                        exit(1);
+                    }
+                    break;
+                }
             case QEMU_OPTION_enable_kvm:
                 olist = qemu_find_opts("machine");
                 qemu_opts_parse_noisily(olist, "accel=kvm", false);
@@ -4731,7 +4782,6 @@ int main(int argc, char **argv, char **envp)
     current_machine->boot_order = boot_order;
     current_machine->cpu_model = cpu_model;
 
-
     /* parse features once if machine provides default cpu_type */
     if (machine_class->default_cpu_type) {
         current_machine->cpu_type = machine_class->default_cpu_type;
@@ -4740,6 +4790,8 @@ int main(int argc, char **argv, char **envp)
                 cpu_parse_cpu_model(machine_class->default_cpu_type, cpu_model);
         }
     }
+
+    main_loop(); /* do monitor/qmp handling at preconfig state if requested */
 
     machine_run_board_init(current_machine);
 
