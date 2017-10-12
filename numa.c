@@ -424,14 +424,10 @@ void numa_default_auto_assign_ram(MachineClass *mc, NodeInfo *nodes,
     nodes[i].node_mem = size - usedmem;
 }
 
-void parse_numa_opts(MachineState *ms)
+void numa_complete_configuration(MachineState *ms)
 {
     int i;
     MachineClass *mc = MACHINE_GET_CLASS(ms);
-
-    if (qemu_opts_foreach(qemu_find_opts("numa"), parse_numa, ms, NULL)) {
-        exit(1);
-    }
 
     assert(max_numa_nodeid <= MAX_NODES);
 
@@ -505,6 +501,13 @@ void parse_numa_opts(MachineState *ms)
         }
     } else {
         numa_set_mem_node_id(0, ram_size, 0);
+    }
+}
+
+void parse_numa_opts(MachineState *ms)
+{
+    if (qemu_opts_foreach(qemu_find_opts("numa"), parse_numa, ms, NULL)) {
+        exit(1);
     }
 }
 
