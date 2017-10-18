@@ -105,7 +105,7 @@ QEMU full system emulation has the following features:
 QEMU uses a full software MMU for maximum portability.
 
 @item
-QEMU can optionally use an in-kernel accelerator, like kvm. The accelerators 
+QEMU can optionally use an in-kernel accelerator, like kvm. The accelerators
 execute most of the guest code natively, while
 continuing to emulate the rest of the machine.
 
@@ -2495,6 +2495,10 @@ the ``-device usb-DEV'' argument instead. The deprecated syntax
 would automatically enable USB support on the machine type.
 If using the new syntax, USB support must be explicitly
 enabled via the ``-machine usb=on'' argument.
+
+@subsection -nodefconfig (since 2.11.0)
+
+The ``-nodefconfig`` argument is a synonym for ``-no-user-config``.
 
 @section qemu-img command line arguments
 
