@@ -4287,8 +4287,6 @@ int main(int argc, char **argv, char **envp)
 #endif
 #elif defined(TARGET_ARM)
         cpu_model = "any";
-#elif defined(TARGET_UNICORE32)
-        cpu_model = "any";
 #elif defined(TARGET_M68K)
         cpu_model = "any";
 #elif defined(TARGET_SPARC)
@@ -4315,8 +4313,20 @@ int main(int argc, char **argv, char **envp)
         cpu_model = "sh7785";
 #elif defined TARGET_S390X
         cpu_model = "qemu";
+#elif defined TARGET_ALPHA
+        cpu_model = "ev67";
+#elif defined TARGET_CRIS
+        cpu_model = "crisv32";
+#elif defined TARGET_HPPA
+        cpu_model = "hppa";
+#elif defined TARGET_MICROBLAZE
+        cpu_model = "microblaze";
+#elif defined TARGET_NIOS2
+        cpu_model = "nios2";
+#elif defined TARGET_TILEGX
+        cpu_model = "tilegx";
 #else
-        cpu_model = "any";
+        QEMU_BUILD_BUG_ON();
 #endif
     }
     tcg_exec_init(0);

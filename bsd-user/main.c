@@ -895,7 +895,7 @@ int main(int argc, char **argv)
         cpu_model = "Fujitsu MB86904";
 #endif
 #else
-        cpu_model = "any";
+       QEMU_BUILD_BUG_ON();
 #endif
     }
     tcg_exec_init(0);
