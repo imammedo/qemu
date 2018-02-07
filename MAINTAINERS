@@ -133,6 +133,7 @@ HPPA (PA-RISC)
 M: Richard Henderson <rth@twiddle.net>
 S: Maintained
 F: target/hppa/
+F: hw/hppa/
 F: disas/hppa.c
 
 LM32
@@ -940,6 +941,15 @@ F: tests/ahci-test.c
 F: tests/libqos/ahci*
 T: git git://github.com/jnsnow/qemu.git ide
 
+IPMI
+M: Corey Minyard <minyard@acm.org>
+S: Maintained
+F: include/hw/ipmi/*
+F: hw/ipmi/*
+F: hw/smbios/smbios_type_38.c
+F: tests/ipmi*
+T: git git://github.com/cminyard/qemu.git master-ipmi-rebase
+
 Floppy
 M: John Snow <jsnow@redhat.com>
 L: qemu-block@nongnu.org
@@ -1163,7 +1173,7 @@ F: hw/scsi/mfi.h
 F: tests/megasas-test.c
 
 Network packet abstractions
-M: Dmitry Fleytman <dmitry@daynix.com>
+M: Dmitry Fleytman <dmitry.fleytman@gmail.com>
 S: Maintained
 F: include/net/eth.h
 F: net/eth.c
@@ -1171,7 +1181,7 @@ F: hw/net/net_rx_pkt*
 F: hw/net/net_tx_pkt*
 
 Vmware
-M: Dmitry Fleytman <dmitry@daynix.com>
+M: Dmitry Fleytman <dmitry.fleytman@gmail.com>
 S: Maintained
 F: hw/net/vmxnet*
 F: hw/scsi/vmw_pvscsi*
@@ -1192,12 +1202,12 @@ F: hw/mem/nvdimm.c
 F: include/hw/mem/nvdimm.h
 
 e1000x
-M: Dmitry Fleytman <dmitry@daynix.com>
+M: Dmitry Fleytman <dmitry.fleytman@gmail.com>
 S: Maintained
 F: hw/net/e1000x*
 
 e1000e
-M: Dmitry Fleytman <dmitry@daynix.com>
+M: Dmitry Fleytman <dmitry.fleytman@gmail.com>
 S: Maintained
 F: hw/net/e1000e*
 
@@ -1592,6 +1602,7 @@ F: include/hw/acpi/tpm.h
 F: include/sysemu/tpm*
 F: qapi/tpm.json
 F: backends/tpm.c
+T: git git://github.com/stefanberger/qemu-tpm.git tpm-next
 
 Checkpatch
 S: Odd Fixes

@@ -150,7 +150,7 @@ static int rtc_date_offset = -1; /* -1 means no change */
 QEMUClockType rtc_clock;
 int vga_interface_type = VGA_NONE;
 static int full_screen = 0;
-static int no_frame = 0;
+int no_frame;
 int no_quit = 0;
 static bool grab_on_hover;
 Chardev *serial_hds[MAX_SERIAL_PORTS];
@@ -1451,30 +1451,15 @@ static void igd_gfx_passthru(void)
 static int usb_device_add(const char *devname)
 {
     USBDevice *dev = NULL;
-#ifndef CONFIG_LINUX
-    const char *p;
-#endif
 
     if (!machine_usb(current_machine)) {
         return -1;
     }
 
-    /* drivers with .usbdevice_name entry in USBDeviceInfo */
     dev = usbdevice_create(devname);
-    if (dev)
-        goto done;
-
-    /* the other ones */
-#ifndef CONFIG_LINUX
-    /* only the linux version is qdev-ified, usb-bsd still needs this */
-    if (strstart(devname, "host:", &p)) {
-        dev = usb_host_device_open(usb_bus_find(-1), p);
-    }
-#endif
     if (!dev)
         return -1;
 
-done:
     return 0;
 }
 
@@ -4694,7 +4679,7 @@ int main(int argc, char **argv, char **envp)
         curses_display_init(ds, full_screen);
         break;
     case DT_SDL:
-        sdl_display_init(ds, full_screen, no_frame);
+        sdl_display_init(ds, full_screen);
         break;
     case DT_COCOA:
         cocoa_display_init(ds, full_screen);
