@@ -37,6 +37,7 @@
 #include "elf.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
+#include "qemu/option.h"
 #include "exec/address-spaces.h"
 
 #include "hw/ppc/ppc.h"
@@ -223,8 +224,8 @@ static void virtex_init(MachineState *machine)
     env = &cpu->env;
 
     if (env->mmu_model != POWERPC_MMU_BOOKE) {
-        fprintf(stderr, "MMU model %i not supported by this machine.\n",
-            env->mmu_model);
+        error_report("MMU model %i not supported by this machine",
+                     env->mmu_model);
         exit(1);
     }
 

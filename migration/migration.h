@@ -16,7 +16,6 @@
 
 #include "qemu-common.h"
 #include "qemu/thread.h"
-#include "qapi-types.h"
 #include "exec/cpu-common.h"
 #include "qemu/coroutine_int.h"
 #include "hw/qdev.h"
@@ -190,7 +189,7 @@ uint64_t migrate_max_downtime(void);
 void migrate_set_error(MigrationState *s, const Error *error);
 void migrate_fd_error(MigrationState *s, const Error *error);
 
-void migrate_fd_connect(MigrationState *s);
+void migrate_fd_connect(MigrationState *s, Error *error_in);
 
 MigrationState *migrate_init(void);
 bool migration_is_blocked(Error **errp);

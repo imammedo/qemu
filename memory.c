@@ -1091,6 +1091,7 @@ void memory_region_transaction_commit(void)
                 address_space_update_ioeventfds(as);
             }
             memory_region_update_pending = false;
+            ioeventfd_update_pending = false;
             MEMORY_LISTENER_CALL_GLOBAL(commit, Forward);
         } else if (ioeventfd_update_pending) {
             QTAILQ_FOREACH(as, &address_spaces, address_spaces_link) {
@@ -1922,6 +1923,19 @@ void memory_region_notify_iommu(IOMMUMemoryRegion *iommu_mr,
     }
 }
 
+int memory_region_iommu_get_attr(IOMMUMemoryRegion *iommu_mr,
+                                 enum IOMMUMemoryRegionAttr attr,
+                                 void *data)
+{
+    IOMMUMemoryRegionClass *imrc = IOMMU_MEMORY_REGION_GET_CLASS(iommu_mr);
+
+    if (!imrc->get_attr) {
+        return -EINVAL;
+    }
+
+    return imrc->get_attr(iommu_mr, attr, data);
+}
+
 void memory_region_set_log(MemoryRegion *mr, bool log, unsigned client)
 {
     uint8_t mask = 1 << client;
@@ -2611,6 +2625,32 @@ static void listener_add_address_space(MemoryListener *listener,
     flatview_unref(view);
 }
 
+static void listener_del_address_space(MemoryListener *listener,
+                                       AddressSpace *as)
+{
+    FlatView *view;
+    FlatRange *fr;
+
+    if (listener->begin) {
+        listener->begin(listener);
+    }
+    view = address_space_get_flatview(as);
+    FOR_EACH_FLAT_RANGE(fr, view) {
+        MemoryRegionSection section = section_from_flat_range(fr, view);
+
+        if (fr->dirty_log_mask && listener->log_stop) {
+            listener->log_stop(listener, &section, fr->dirty_log_mask, 0);
+        }
+        if (listener->region_del) {
+            listener->region_del(listener, &section);
+        }
+    }
+    if (listener->commit) {
+        listener->commit(listener);
+    }
+    flatview_unref(view);
+}
+
 void memory_listener_register(MemoryListener *listener, AddressSpace *as)
 {
     MemoryListener *other = NULL;
@@ -2651,6 +2691,7 @@ void memory_listener_unregister(MemoryListener *listener)
         return;
     }
 
+    listener_del_address_space(listener, listener->address_space);
     QTAILQ_REMOVE(&memory_listeners, listener, link);
     QTAILQ_REMOVE(&listener->address_space->listeners, listener, link_as);
     listener->address_space = NULL;
