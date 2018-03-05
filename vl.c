@@ -97,11 +97,9 @@ int main(int argc, char **argv)
 #include "sysemu/kvm.h"
 #include "sysemu/hax.h"
 #include "qapi/qobject-input-visitor.h"
-#include "qapi-visit.h"
 #include "qemu/option.h"
 #include "qemu/config-file.h"
 #include "qemu-options.h"
-#include "qmp-commands.h"
 #include "qemu/main-loop.h"
 #ifdef CONFIG_VIRTFS
 #include "fsdev/qemu-fsdev.h"
@@ -122,10 +120,14 @@ int main(int argc, char **argv)
 #include "qapi/string-input-visitor.h"
 #include "qapi/opts-visitor.h"
 #include "qom/object_interfaces.h"
-#include "qapi-event.h"
 #include "exec/semihost.h"
 #include "crypto/init.h"
 #include "sysemu/replay.h"
+#include "qapi/qapi-events-run-state.h"
+#include "qapi/qapi-visit-block-core.h"
+#include "qapi/qapi-commands-block-core.h"
+#include "qapi/qapi-commands-misc.h"
+#include "qapi/qapi-commands-run-state.h"
 #include "qapi/qmp/qerror.h"
 #include "sysemu/iothread.h"
 
@@ -1736,7 +1738,7 @@ void qemu_system_reset(ShutdownCause reason)
 
 void qemu_system_guest_panicked(GuestPanicInformation *info)
 {
-    qemu_log_mask(LOG_GUEST_ERROR, "Guest crashed\n");
+    qemu_log_mask(LOG_GUEST_ERROR, "Guest crashed");
 
     if (current_cpu) {
         current_cpu->crash_occurred = true;
@@ -1752,13 +1754,20 @@ void qemu_system_guest_panicked(GuestPanicInformation *info)
 
     if (info) {
         if (info->type == GUEST_PANIC_INFORMATION_TYPE_HYPER_V) {
-            qemu_log_mask(LOG_GUEST_ERROR, "HV crash parameters: (%#"PRIx64
+            qemu_log_mask(LOG_GUEST_ERROR, "\nHV crash parameters: (%#"PRIx64
                           " %#"PRIx64" %#"PRIx64" %#"PRIx64" %#"PRIx64")\n",
                           info->u.hyper_v.arg1,
                           info->u.hyper_v.arg2,
                           info->u.hyper_v.arg3,
                           info->u.hyper_v.arg4,
                           info->u.hyper_v.arg5);
+        } else if (info->type == GUEST_PANIC_INFORMATION_TYPE_S390) {
+            qemu_log_mask(LOG_GUEST_ERROR, " on cpu %d: %s\n"
+                          "PSW: 0x%016" PRIx64 " 0x%016" PRIx64"\n",
+                          info->u.s390.core,
+                          S390CrashReason_str(info->u.s390.reason),
+                          info->u.s390.psw_mask,
+                          info->u.s390.psw_addr);
         }
         qapi_free_GuestPanicInformation(info);
     }
@@ -2837,6 +2846,12 @@ static bool object_create_initial(const char *type)
         g_str_has_prefix(type, "pr-manager-")) {
         return false;
     }
+
+#if defined(CONFIG_VHOST_USER) && defined(CONFIG_LINUX)
+    if (g_str_equal(type, "cryptodev-vhost-user")) {
+        return false;
+    }
+#endif
 
     /*
      * return false for concrete netfilters since

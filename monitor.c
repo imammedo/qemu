@@ -69,14 +69,14 @@
 #include "exec/exec-all.h"
 #include "qemu/log.h"
 #include "qemu/option.h"
-#include "qmp-commands.h"
 #include "hmp.h"
 #include "qemu/thread.h"
 #include "block/qapi.h"
+#include "qapi/qapi-commands.h"
+#include "qapi/qapi-events.h"
 #include "qapi/error.h"
 #include "qapi/qmp-event.h"
-#include "qapi-event.h"
-#include "qmp-introspect.h"
+#include "qapi/qapi-introspect.h"
 #include "sysemu/qtest.h"
 #include "sysemu/cpus.h"
 #include "qemu/cutils.h"
@@ -951,7 +951,7 @@ EventInfoList *qmp_query_events(Error **errp)
  * visit_type_SchemaInfoList() into a SchemaInfoList, then marshal it
  * to QObject with generated output marshallers, every time.  Instead,
  * we do it in test-qobject-input-visitor.c, just to make sure
- * qapi-introspect.py's output actually conforms to the schema.
+ * qapi-gen.py's output actually conforms to the schema.
  */
 static void qmp_query_qmp_schema(QDict *qdict, QObject **ret_data,
                                  Error **errp)
@@ -1055,7 +1055,7 @@ int monitor_set_cpu(int cpu_index)
     return 0;
 }
 
-CPUState *mon_get_cpu(void)
+static CPUState *mon_get_cpu_sync(bool synchronize)
 {
     CPUState *cpu;
 
@@ -1074,8 +1074,15 @@ CPUState *mon_get_cpu(void)
         monitor_set_cpu(first_cpu->cpu_index);
         cpu = first_cpu;
     }
-    cpu_synchronize_state(cpu);
+    if (synchronize) {
+        cpu_synchronize_state(cpu);
+    }
     return cpu;
+}
+
+CPUState *mon_get_cpu(void)
+{
+    return mon_get_cpu_sync(true);
 }
 
 CPUArchState *mon_get_cpu_env(void)
@@ -1087,7 +1094,7 @@ CPUArchState *mon_get_cpu_env(void)
 
 int monitor_get_cpu_index(void)
 {
-    CPUState *cs = mon_get_cpu();
+    CPUState *cs = mon_get_cpu_sync(false);
 
     return cs ? cs->cpu_index : UNASSIGNED_CPU_INDEX;
 }
