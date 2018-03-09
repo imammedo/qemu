@@ -2094,7 +2094,6 @@ static void parse_display(const char *p)
     const char *opts;
 
     if (strstart(p, "sdl", &opts)) {
-#ifdef CONFIG_SDL
         dpy.type = DISPLAY_TYPE_SDL;
         while (*opts) {
             const char *nextopt;
@@ -2155,10 +2154,6 @@ static void parse_display(const char *p)
             }
             opts = nextopt;
         }
-#else
-        error_report("SDL support is disabled");
-        exit(1);
-#endif
     } else if (strstart(p, "vnc", &opts)) {
         if (*opts == '=') {
             vnc_parse(opts + 1, &error_fatal);
@@ -2167,22 +2162,10 @@ static void parse_display(const char *p)
             exit(1);
         }
     } else if (strstart(p, "egl-headless", &opts)) {
-#ifdef CONFIG_OPENGL_DMABUF
-        display_opengl = 1;
         dpy.type = DISPLAY_TYPE_EGL_HEADLESS;
-#else
-        error_report("egl support is disabled");
-        exit(1);
-#endif
     } else if (strstart(p, "curses", &opts)) {
-#ifdef CONFIG_CURSES
         dpy.type = DISPLAY_TYPE_CURSES;
-#else
-        error_report("curses support is disabled");
-        exit(1);
-#endif
     } else if (strstart(p, "gtk", &opts)) {
-#ifdef CONFIG_GTK
         dpy.type = DISPLAY_TYPE_GTK;
         while (*opts) {
             const char *nextopt;
@@ -2214,10 +2197,6 @@ static void parse_display(const char *p)
             }
             opts = nextopt;
         }
-#else
-        error_report("GTK support is disabled");
-        exit(1);
-#endif
     } else if (strstart(p, "none", &opts)) {
         dpy.type = DISPLAY_TYPE_NONE;
     } else {
@@ -2229,6 +2208,9 @@ static void parse_display(const char *p)
 static int balloon_parse(const char *arg)
 {
     QemuOpts *opts;
+
+    warn_report("This option is deprecated. "
+                "Use '--device virtio-balloon' to enable the balloon device.");
 
     if (strcmp(arg, "none") == 0) {
         return 0;
@@ -3093,6 +3075,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_chardev_opts);
     qemu_add_opts(&qemu_device_opts);
     qemu_add_opts(&qemu_netdev_opts);
+    qemu_add_opts(&qemu_nic_opts);
     qemu_add_opts(&qemu_net_opts);
     qemu_add_opts(&qemu_rtc_opts);
     qemu_add_opts(&qemu_global_opts);
@@ -3313,6 +3296,12 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 break;
+            case QEMU_OPTION_nic:
+                default_net = 0;
+                if (net_client_parse(qemu_find_opts("nic"), optarg) == -1) {
+                    exit(1);
+                }
+                break;
             case QEMU_OPTION_net:
                 default_net = 0;
                 if (net_client_parse(qemu_find_opts("net"), optarg) == -1) {
@@ -3420,6 +3409,8 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_localtime:
                 rtc_utc = 0;
+                warn_report("This option is deprecated, "
+                            "use '-rtc base=localtime' instead.");
                 break;
             case QEMU_OPTION_vga:
                 vga_model = optarg;
@@ -3679,6 +3670,8 @@ int main(int argc, char **argv, char **envp)
                 };
 
                 qdev_prop_register_global(&slew_lost_ticks);
+                warn_report("This option is deprecated, "
+                            "use '-rtc driftfix=slew' instead.");
                 break;
             }
             case QEMU_OPTION_acpitable:
@@ -3856,9 +3849,6 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 break;
-            case QEMU_OPTION_tdf:
-                warn_report("ignoring deprecated option");
-                break;
             case QEMU_OPTION_name:
                 opts = qemu_opts_parse_noisily(qemu_find_opts("name"),
                                                optarg, true);
@@ -3883,6 +3873,7 @@ int main(int argc, char **argv, char **envp)
                  */
                 break;
             case QEMU_OPTION_startdate:
+                warn_report("This option is deprecated, use '-rtc base=' instead.");
                 configure_rtc_date_offset(optarg, 1);
                 break;
             case QEMU_OPTION_rtc:
@@ -4321,17 +4312,15 @@ int main(int argc, char **argv, char **envp)
     }
 #endif
     if (dpy.type == DISPLAY_TYPE_DEFAULT && !display_remote) {
-#if defined(CONFIG_GTK)
-        dpy.type = DISPLAY_TYPE_GTK;
-#elif defined(CONFIG_SDL)
-        dpy.type = DISPLAY_TYPE_SDL;
-#elif defined(CONFIG_COCOA)
-        dpy.type = DISPLAY_TYPE_COCOA;
-#elif defined(CONFIG_VNC)
-        vnc_parse("localhost:0,to=99,id=default", &error_abort);
-#else
-        dpy.type = DISPLAY_TYPE_NONE;
+        if (!qemu_display_find_default(&dpy)) {
+            dpy.type = DISPLAY_TYPE_NONE;
+#if defined(CONFIG_VNC)
+            vnc_parse("localhost:0,to=99,id=default", &error_abort);
 #endif
+        }
+    }
+    if (dpy.type == DISPLAY_TYPE_DEFAULT) {
+        dpy.type = DISPLAY_TYPE_NONE;
     }
 
     if ((no_frame || alt_grab || ctrl_grab) && dpy.type != DISPLAY_TYPE_SDL) {
@@ -4344,14 +4333,7 @@ int main(int argc, char **argv, char **envp)
                      "ignoring option");
     }
 
-    if (dpy.type == DISPLAY_TYPE_GTK) {
-        early_gtk_display_init(&dpy);
-    }
-
-    if (dpy.type == DISPLAY_TYPE_SDL) {
-        sdl_display_early_init(&dpy);
-    }
-
+    qemu_display_early_init(&dpy);
     qemu_console_early_init();
 
     if (dpy.has_gl && dpy.gl && display_opengl == 0) {
@@ -4491,7 +4473,8 @@ int main(int argc, char **argv, char **envp)
 
     colo_info_init();
 
-    if (net_init_clients() < 0) {
+    if (net_init_clients(&err) < 0) {
+        error_report_err(err);
         exit(1);
     }
 
@@ -4646,15 +4629,6 @@ int main(int argc, char **argv, char **envp)
 
     rom_reset_order_override();
 
-    /*
-     * Create frontends for -drive if=scsi leftovers.
-     * Normally, frontends for -drive get created by machine
-     * initialization for onboard SCSI HBAs.  However, we create a few
-     * more ever since SCSI qdevification, but this is pretty much an
-     * implementation accident, and deprecated.
-     */
-    scsi_legacy_handle_cmdline();
-
     /* Did we create any drives that we failed to create a device for? */
     drive_check_orphaned();
 
@@ -4676,25 +4650,9 @@ int main(int argc, char **argv, char **envp)
         qemu_register_reset(restore_boot_order, g_strdup(boot_order));
     }
 
-    ds = init_displaystate();
-
     /* init local displays */
-    switch (dpy.type) {
-    case DISPLAY_TYPE_CURSES:
-        curses_display_init(ds, &dpy);
-        break;
-    case DISPLAY_TYPE_SDL:
-        sdl_display_init(ds, &dpy);
-        break;
-    case DISPLAY_TYPE_COCOA:
-        cocoa_display_init(ds, &dpy);
-        break;
-    case DISPLAY_TYPE_GTK:
-        gtk_display_init(ds, &dpy);
-        break;
-    default:
-        break;
-    }
+    ds = init_displaystate();
+    qemu_display_init(ds, &dpy);
 
     /* must be after terminal init, SDL library changes signal handlers */
     os_setup_signal_handling();
@@ -4708,12 +4666,6 @@ int main(int argc, char **argv, char **envp)
     if (using_spice) {
         qemu_spice_display_init();
     }
-
-#ifdef CONFIG_OPENGL_DMABUF
-    if (dpy.type == DISPLAY_TYPE_EGL_HEADLESS) {
-        egl_headless_init(&dpy);
-    }
-#endif
 
     if (foreach_device_config(DEV_GDB, gdbserver_start) < 0) {
         exit(1);

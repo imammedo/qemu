@@ -592,19 +592,23 @@ static gboolean tcp_chr_telnet_init_io(QIOChannel *ioc,
             ret = 0;
         } else {
             tcp_chr_disconnect(init->chr);
-            return FALSE;
+            goto end;
         }
     }
     init->buflen -= ret;
 
     if (init->buflen == 0) {
         tcp_chr_connect(init->chr);
-        return FALSE;
+        goto end;
     }
 
     memmove(init->buf, init->buf + ret, init->buflen);
 
-    return TRUE;
+    return G_SOURCE_CONTINUE;
+
+end:
+    g_free(init);
+    return G_SOURCE_REMOVE;
 }
 
 static void tcp_chr_telnet_init(Chardev *chr)
@@ -703,6 +707,7 @@ static void tcp_chr_tls_init(Chardev *chr)
     qio_channel_tls_handshake(tioc,
                               tcp_chr_tls_handshake,
                               chr,
+                              NULL,
                               NULL);
 }
 
@@ -867,7 +872,7 @@ static gboolean socket_reconnect_timeout(gpointer opaque)
     tcp_chr_set_client_ioc_name(chr, sioc);
     qio_channel_socket_connect_async(sioc, s->addr,
                                      qemu_chr_socket_connected,
-                                     chr, NULL);
+                                     chr, NULL, NULL);
 
     return false;
 }
@@ -951,7 +956,7 @@ static void qmp_chardev_open_socket(Chardev *chr,
         tcp_chr_set_client_ioc_name(chr, sioc);
         qio_channel_socket_connect_async(sioc, s->addr,
                                          qemu_chr_socket_connected,
-                                         chr, NULL);
+                                         chr, NULL, NULL);
     } else {
         if (s->is_listen) {
             char *name;

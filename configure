@@ -2486,20 +2486,20 @@ fi
 if test "$whpx" != "no" ; then
     cat > $TMPC << EOF
 #include <windows.h>
-#include <winhvplatform.h>
-#include <winhvemulation.h>
+#include <WinHvPlatform.h>
+#include <WinHvEmulation.h>
 int main(void) {
     WHV_CAPABILITY whpx_cap;
     WHvGetCapability(WHvCapabilityCodeFeatures, &whpx_cap, sizeof(whpx_cap));
     return 0;
 }
 EOF
-    if compile_prog "" "-lwinhvplatform -lwinhvemulation" ; then
-        libs_softmmu="$libs_softmmu -lwinhvplatform -lwinhvemulation"
+    if compile_prog "" "-lWinHvPlatform -lWinHvEmulation" ; then
+        libs_softmmu="$libs_softmmu -lWinHvPlatform -lWinHvEmulation"
         whpx="yes"
     else
         if test "$whpx" = "yes"; then
-            feature_not_found "winhvplatform" "winhvemulation is not installed"
+            feature_not_found "WinHvPlatform" "WinHvEmulation is not installed"
         fi
         whpx="no"
     fi
@@ -2520,9 +2520,8 @@ fi
 
 ##########################################
 # X11 probe
-x11_cflags=
-x11_libs=-lX11
 if $pkg_config --exists "x11"; then
+    have_x11=yes
     x11_cflags=$($pkg_config --cflags x11)
     x11_libs=$($pkg_config --libs x11)
 fi
@@ -2555,10 +2554,10 @@ if test "$gtk" != "no"; then
         gtk_libs=$($pkg_config --libs $gtkpackage)
         gtk_version=$($pkg_config --modversion $gtkpackage)
         if $pkg_config --exists "$gtkx11package >= $gtkversion"; then
+            need_x11=yes
             gtk_cflags="$gtk_cflags $x11_cflags"
             gtk_libs="$gtk_libs $x11_libs"
         fi
-        libs_softmmu="$gtk_libs $libs_softmmu"
         gtk="yes"
     elif test "$gtk" = "yes"; then
         feature_not_found "gtk" "Install gtk3-devel"
@@ -2808,7 +2807,6 @@ if test "$vte" != "no"; then
         vte_cflags=$($pkg_config --cflags $vtepackage)
         vte_libs=$($pkg_config --libs $vtepackage)
         vteversion=$($pkg_config --modversion $vtepackage)
-        libs_softmmu="$vte_libs $libs_softmmu"
         vte="yes"
     elif test "$vte" = "yes"; then
         if test "$gtkabi" = "3.0"; then
@@ -2923,6 +2921,7 @@ if test "$sdl" = "yes" ; then
 int main(void) { return 0; }
 EOF
   if compile_prog "$sdl_cflags $x11_cflags" "$sdl_libs $x11_libs" ; then
+    need_x11=yes
     sdl_cflags="$sdl_cflags $x11_cflags"
     sdl_libs="$sdl_libs $x11_libs"
   fi
@@ -3281,8 +3280,6 @@ EOF
       unset IFS
       if compile_prog "$curses_inc" "$curses_lib" ; then
         curses_found=yes
-        QEMU_CFLAGS="$curses_inc $QEMU_CFLAGS"
-        libs_softmmu="$curses_lib $libs_softmmu"
         break
       fi
     done
@@ -3778,9 +3775,9 @@ libs_softmmu="$libs_softmmu $fdt_libs"
 
 if test "$opengl" != "no" ; then
   opengl_pkgs="epoxy libdrm gbm"
-  if $pkg_config $opengl_pkgs x11; then
-    opengl_cflags="$($pkg_config --cflags $opengl_pkgs) $x11_cflags"
-    opengl_libs="$($pkg_config --libs $opengl_pkgs) $x11_libs"
+  if $pkg_config $opengl_pkgs; then
+    opengl_cflags="$($pkg_config --cflags $opengl_pkgs)"
+    opengl_libs="$($pkg_config --libs $opengl_pkgs)"
     opengl=yes
     if test "$gtk" = "yes" && $pkg_config --exists "$gtkpackage >= 3.16"; then
         gtk_gl="yes"
@@ -5319,25 +5316,27 @@ fi
 ##########################################
 # checks for sanitizers
 
-# we could use a simple skeleton for flags checks, but this also
-# detect the static linking issue of ubsan, see also:
-# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=84285
-cat > $TMPC << EOF
-#include <stdint.h>
-int main(void) {
-  return INT32_MIN / -1;
-}
-EOF
-
 have_asan=no
 have_ubsan=no
 have_asan_iface_h=no
 have_asan_iface_fiber=no
 
 if test "$sanitizers" = "yes" ; then
+  write_c_skeleton
   if compile_prog "$CPU_CFLAGS -Werror -fsanitize=address" ""; then
       have_asan=yes
   fi
+
+  # we could use a simple skeleton for flags checks, but this also
+  # detect the static linking issue of ubsan, see also:
+  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=84285
+  cat > $TMPC << EOF
+#include <stdlib.h>
+int main(void) {
+    void *tmp = malloc(10);
+    return *(int *)(tmp + 2);
+}
+EOF
   if compile_prog "$CPU_CFLAGS -Werror -fsanitize=undefined" ""; then
       have_ubsan=yes
   fi
@@ -5369,19 +5368,8 @@ if test "$gcov" = "yes" ; then
   LDFLAGS="-fprofile-arcs -ftest-coverage $LDFLAGS"
 elif test "$fortify_source" = "yes" ; then
   CFLAGS="-O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 $CFLAGS"
-elif test "$debug" = "yes"; then
-  if compile_prog "-Og" ""; then
-      CFLAGS="-Og $CFLAGS"
-  elif compile_prog "-O1" ""; then
-      CFLAGS="-O1 $CFLAGS"
-  fi
-  # Workaround GCC false-positive Wuninitialized bugs with Og or O1:
-  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=24639
-  if cc_has_warning_flag "-Wno-maybe-uninitialized"; then
-      CFLAGS="-Wno-maybe-uninitialized $CFLAGS"
-  fi
-else
-    CFLAGS="-O2 $CFLAGS"
+elif test "$debug" = "no"; then
+  CFLAGS="-O2 $CFLAGS"
 fi
 
 if test "$have_asan" = "yes"; then
@@ -5984,7 +5972,7 @@ if test "$cap_ng" = "yes" ; then
 fi
 echo "CONFIG_AUDIO_DRIVERS=$audio_drv_list" >> $config_host_mak
 for drv in $audio_drv_list; do
-    def=CONFIG_$(echo $drv | LC_ALL=C tr '[a-z]' '[A-Z]')
+    def=CONFIG_AUDIO_$(echo $drv | LC_ALL=C tr '[a-z]' '[A-Z]')
     echo "$def=y" >> $config_host_mak
 done
 echo "ALSA_LIBS=$alsa_libs" >> $config_host_mak
@@ -6036,8 +6024,13 @@ if test "$modules" = "yes"; then
   echo "CONFIG_STAMP=_$( (echo $qemu_version; echo $pkgversion; cat $0) | $shacmd - | cut -f1 -d\ )" >> $config_host_mak
   echo "CONFIG_MODULES=y" >> $config_host_mak
 fi
+if test "$have_x11" = "yes" -a "$need_x11" = "yes"; then
+  echo "CONFIG_X11=y" >> $config_host_mak
+  echo "X11_CFLAGS=$x11_cflags" >> $config_host_mak
+  echo "X11_LIBS=$x11_libs" >> $config_host_mak
+fi
 if test "$sdl" = "yes" ; then
-  echo "CONFIG_SDL=y" >> $config_host_mak
+  echo "CONFIG_SDL=m" >> $config_host_mak
   echo "CONFIG_SDLABI=$sdlabi" >> $config_host_mak
   echo "SDL_CFLAGS=$sdl_cflags" >> $config_host_mak
   echo "SDL_LIBS=$sdl_libs" >> $config_host_mak
@@ -6046,7 +6039,9 @@ if test "$cocoa" = "yes" ; then
   echo "CONFIG_COCOA=y" >> $config_host_mak
 fi
 if test "$curses" = "yes" ; then
-  echo "CONFIG_CURSES=y" >> $config_host_mak
+  echo "CONFIG_CURSES=m" >> $config_host_mak
+  echo "CURSES_CFLAGS=$curses_inc" >> $config_host_mak
+  echo "CURSES_LIBS=$curses_lib" >> $config_host_mak
 fi
 if test "$pipe2" = "yes" ; then
   echo "CONFIG_PIPE2=y" >> $config_host_mak
@@ -6143,7 +6138,7 @@ if test "$glib_subprocess" = "yes" ; then
   echo "CONFIG_HAS_GLIB_SUBPROCESS_TESTS=y" >> $config_host_mak
 fi
 if test "$gtk" = "yes" ; then
-  echo "CONFIG_GTK=y" >> $config_host_mak
+  echo "CONFIG_GTK=m" >> $config_host_mak
   echo "CONFIG_GTKABI=$gtkabi" >> $config_host_mak
   echo "GTK_CFLAGS=$gtk_cflags" >> $config_host_mak
   echo "GTK_LIBS=$gtk_libs" >> $config_host_mak
@@ -6194,6 +6189,7 @@ fi
 if test "$vte" = "yes" ; then
   echo "CONFIG_VTE=y" >> $config_host_mak
   echo "VTE_CFLAGS=$vte_cflags" >> $config_host_mak
+  echo "VTE_LIBS=$vte_libs" >> $config_host_mak
 fi
 if test "$virglrenderer" = "yes" ; then
   echo "CONFIG_VIRGL=y" >> $config_host_mak
