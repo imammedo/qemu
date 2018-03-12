@@ -993,7 +993,7 @@ void cpu_synchronize_all_pre_loadvm(void)
     }
 }
 
-static int do_vm_stop(RunState state)
+static int do_vm_stop(RunState state, bool send_stop)
 {
     int ret = 0;
 
@@ -1002,7 +1002,9 @@ static int do_vm_stop(RunState state)
         pause_all_vcpus();
         runstate_set(state);
         vm_state_notify(0, state);
-        qapi_event_send_stop(&error_abort);
+        if (send_stop) {
+            qapi_event_send_stop(&error_abort);
+        }
     }
 
     bdrv_drain_all();
@@ -1010,6 +1012,14 @@ static int do_vm_stop(RunState state)
     ret = bdrv_flush_all();
 
     return ret;
+}
+
+/* Special vm_stop() variant for terminating the process.  Historically clients
+ * did not expect a QMP STOP event and so we need to retain compatibility.
+ */
+int vm_shutdown(void)
+{
+    return do_vm_stop(RUN_STATE_SHUTDOWN, false);
 }
 
 static bool cpu_can_run(CPUState *cpu)
@@ -1994,7 +2004,7 @@ int vm_stop(RunState state)
         return 0;
     }
 
-    return do_vm_stop(state);
+    return do_vm_stop(state, true);
 }
 
 /**
@@ -2081,6 +2091,9 @@ CpuInfoList *qmp_query_cpus(Error **errp)
 #elif defined(TARGET_SPARC)
         SPARCCPU *sparc_cpu = SPARC_CPU(cpu);
         CPUSPARCState *env = &sparc_cpu->env;
+#elif defined(TARGET_RISCV)
+        RISCVCPU *riscv_cpu = RISCV_CPU(cpu);
+        CPURISCVState *env = &riscv_cpu->env;
 #elif defined(TARGET_MIPS)
         MIPSCPU *mips_cpu = MIPS_CPU(cpu);
         CPUMIPSState *env = &mips_cpu->env;
@@ -2120,6 +2133,9 @@ CpuInfoList *qmp_query_cpus(Error **errp)
 #elif defined(TARGET_S390X)
         info->value->arch = CPU_INFO_ARCH_S390;
         info->value->u.s390.cpu_state = env->cpu_state;
+#elif defined(TARGET_RISCV)
+        info->value->arch = CPU_INFO_ARCH_RISCV;
+        info->value->u.riscv.pc = env->pc;
 #else
         info->value->arch = CPU_INFO_ARCH_OTHER;
 #endif
