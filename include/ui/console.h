@@ -260,6 +260,8 @@ DisplaySurface *qemu_create_displaysurface_guestmem(int width, int height,
                                                     pixman_format_code_t format,
                                                     int linesize,
                                                     uint64_t addr);
+DisplaySurface *qemu_create_message_surface(int w, int h,
+                                            const char *msg);
 PixelFormat qemu_default_pixelformat(int bpp);
 
 DisplaySurface *qemu_create_displaysurface(int width, int height);
@@ -384,6 +386,7 @@ QemuConsole *graphic_console_init(DeviceState *dev, uint32_t head,
 void graphic_console_set_hwops(QemuConsole *con,
                                const GraphicHwOps *hw_ops,
                                void *opaque);
+void graphic_console_close(QemuConsole *con);
 
 void graphic_hw_update(QemuConsole *con);
 void graphic_hw_invalidate(QemuConsole *con);
@@ -396,6 +399,7 @@ QemuConsole *qemu_console_lookup_by_index(unsigned int index);
 QemuConsole *qemu_console_lookup_by_device(DeviceState *dev, uint32_t head);
 QemuConsole *qemu_console_lookup_by_device_name(const char *device_id,
                                                 uint32_t head, Error **errp);
+QemuConsole *qemu_console_lookup_unused(void);
 bool qemu_console_is_visible(QemuConsole *con);
 bool qemu_console_is_graphic(QemuConsole *con);
 bool qemu_console_is_fixedsize(QemuConsole *con);

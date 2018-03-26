@@ -5,10 +5,12 @@
  * later version. See the COPYING file in the top-level directory.
  */
 
-#ifndef UNICORE32_TARGET_ELF_H
-#define UNICORE32_TARGET_ELF_H
+#ifndef XTENSA_TARGET_ELF_H
+#define XTENSA_TARGET_ELF_H
+
 static inline const char *cpu_get_model(uint32_t eflags)
 {
-    return "any";
+    return XTENSA_DEFAULT_CPU_MODEL;
 }
+
 #endif

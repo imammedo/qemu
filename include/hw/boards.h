@@ -243,6 +243,7 @@ struct MachineState {
     bool suppress_vmdesc;
     bool enforce_config_section;
     bool enable_graphics;
+    char *memory_encryption;
 
     ram_addr_t ram_size;
     ram_addr_t maxram_size;
@@ -251,7 +252,6 @@ struct MachineState {
     char *kernel_filename;
     char *kernel_cmdline;
     char *initrd_filename;
-    const char *cpu_model;
     const char *cpu_type;
     AccelState *accelerator;
     CPUArchIdList *possible_cpus;

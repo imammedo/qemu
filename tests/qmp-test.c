@@ -20,6 +20,7 @@
 #include "qapi/qobject-input-visitor.h"
 #include "qapi/util.h"
 #include "qapi/visitor.h"
+#include "qapi/qmp/qstring.h"
 
 const char common_args[] = "-nodefaults -machine none";
 
@@ -89,7 +90,6 @@ static void test_qmp_protocol(void)
     test_version(qdict_get(q, "version"));
     capabilities = qdict_get_qlist(q, "capabilities");
     g_assert(capabilities && qlist_empty(capabilities));
-    QDECREF(resp);
 
     /* Test valid command before handshake */
     resp = qtest_qmp(qts, "{ 'execute': 'query-version' }");
@@ -204,6 +204,11 @@ static bool query_is_blacklisted(const char *cmd)
         "query-gic-capabilities", /* arm */
         /* Success depends on target-specific build configuration: */
         "query-pci",              /* CONFIG_PCI */
+        /* Success depends on launching SEV guest */
+        "query-sev-launch-measure",
+        /* Success depends on Host or Hypervisor SEV support */
+        "query-sev",
+        "query-sev-capabilities",
         NULL
     };
     int i;

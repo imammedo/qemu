@@ -1321,7 +1321,7 @@ void hmp_savevm(Monitor *mon, const QDict *qdict)
 void hmp_delvm(Monitor *mon, const QDict *qdict)
 {
     BlockDriverState *bs;
-    Error *err;
+    Error *err = NULL;
     const char *name = qdict_get_str(qdict, "name");
 
     if (bdrv_all_delete_snapshot(name, &bs, &err) < 0) {
@@ -2140,9 +2140,11 @@ err_out:
 void hmp_screendump(Monitor *mon, const QDict *qdict)
 {
     const char *filename = qdict_get_str(qdict, "filename");
+    const char *id = qdict_get_try_str(qdict, "device");
+    int64_t head = qdict_get_try_int(qdict, "head", 0);
     Error *err = NULL;
 
-    qmp_screendump(filename, &err);
+    qmp_screendump(filename, id != NULL, id, id != NULL, head, &err);
     hmp_handle_error(mon, &err);
 }
 
@@ -2421,7 +2423,18 @@ void hmp_info_memory_devices(Monitor *mon, const QDict *qdict)
             switch (value->type) {
             case MEMORY_DEVICE_INFO_KIND_DIMM:
                 di = value->u.dimm.data;
+                break;
 
+            case MEMORY_DEVICE_INFO_KIND_NVDIMM:
+                di = value->u.nvdimm.data;
+                break;
+
+            default:
+                di = NULL;
+                break;
+            }
+
+            if (di) {
                 monitor_printf(mon, "Memory device [%s]: \"%s\"\n",
                                MemoryDeviceInfoKind_str(value->type),
                                di->id ? di->id : "");
@@ -2434,9 +2447,6 @@ void hmp_info_memory_devices(Monitor *mon, const QDict *qdict)
                                di->hotplugged ? "true" : "false");
                 monitor_printf(mon, "  hotpluggable: %s\n",
                                di->hotpluggable ? "true" : "false");
-                break;
-            default:
-                break;
             }
         }
     }

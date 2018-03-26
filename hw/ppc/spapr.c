@@ -722,8 +722,7 @@ static int spapr_populate_drconf_memory(sPAPRMachineState *spapr, void *fdt)
     }
 
     if (hotplug_lmb_start) {
-        MemoryDeviceInfoList **prev = &dimms;
-        qmp_pc_dimm_device_list(qdev_get_machine(), &prev);
+        dimms = qmp_pc_dimm_device_list();
     }
 
     /* ibm,dynamic-memory */
@@ -2607,10 +2606,11 @@ static void spapr_machine_init(MachineState *machine)
         NICInfo *nd = &nd_table[i];
 
         if (!nd->model) {
-            nd->model = g_strdup("ibmveth");
+            nd->model = g_strdup("spapr-vlan");
         }
 
-        if (strcmp(nd->model, "ibmveth") == 0) {
+        if (g_str_equal(nd->model, "spapr-vlan") ||
+            g_str_equal(nd->model, "ibmveth")) {
             spapr_vlan_create(spapr->vio_bus, nd);
         } else {
             pci_nic_init_nofail(&nd_table[i], phb->bus, nd->model, NULL);
@@ -2855,6 +2855,11 @@ static void spapr_set_modern_hotplug_events(Object *obj, bool value,
     spapr->use_hotplug_event_source = value;
 }
 
+static bool spapr_get_msix_emulation(Object *obj, Error **errp)
+{
+    return true;
+}
+
 static char *spapr_get_resize_hpt(Object *obj, Error **errp)
 {
     sPAPRMachineState *spapr = SPAPR_MACHINE(obj);
@@ -2936,6 +2941,8 @@ static void spapr_instance_init(Object *obj)
     object_property_set_description(obj, "vsmt",
                                     "Virtual SMT: KVM behaves as if this were"
                                     " the host's SMT mode", &error_abort);
+    object_property_add_bool(obj, "vfio-no-msix-emulation",
+                             spapr_get_msix_emulation, NULL, NULL);
 }
 
 static void spapr_machine_finalizefn(Object *obj)

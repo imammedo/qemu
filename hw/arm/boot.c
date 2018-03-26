@@ -720,6 +720,18 @@ static void do_cpu_reset(void *opaque)
                     } else {
                         env->pstate = PSTATE_MODE_EL1h;
                     }
+                    /* AArch64 kernels never boot in secure mode */
+                    assert(!info->secure_boot);
+                    /* This hook is only supported for AArch32 currently:
+                     * bootloader_aarch64[] will not call the hook, and
+                     * the code above has already dropped us into EL2 or EL1.
+                     */
+                    assert(!info->secure_board_setup);
+                }
+
+                if (arm_feature(env, ARM_FEATURE_EL2)) {
+                    /* If we have EL2 then Linux expects the HVC insn to work */
+                    env->cp15.scr_el3 |= SCR_HCE;
                 }
 
                 /* Set to non-secure if not a secure boot */
@@ -829,6 +841,7 @@ static uint64_t arm_load_elf(struct arm_boot_info *info, uint64_t *pentry,
 
     load_elf_hdr(info->kernel_filename, &elf_header, &elf_is64, &err);
     if (err) {
+        error_free(err);
         return ret;
     }
 
@@ -890,7 +903,8 @@ static uint64_t load_aarch64_image(const char *filename, hwaddr mem_base,
     }
 
     /* check the arm64 magic header value -- very old kernels may not have it */
-    if (memcmp(buffer + ARM64_MAGIC_OFFSET, "ARM\x64", 4) == 0) {
+    if (size > ARM64_MAGIC_OFFSET + 4 &&
+        memcmp(buffer + ARM64_MAGIC_OFFSET, "ARM\x64", 4) == 0) {
         uint64_t hdrvals[2];
 
         /* The arm64 Image header has text_offset and image_size fields at 8 and

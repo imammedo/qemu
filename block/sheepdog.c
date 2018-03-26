@@ -1036,7 +1036,7 @@ static void sd_parse_uri(SheepdogConfig *cfg, const char *filename,
 
     cfg->uri = uri = uri_parse(filename);
     if (!uri) {
-        error_setg(&err, "invalid URI");
+        error_setg(&err, "invalid URI '%s'", filename);
         goto out;
     }
 
@@ -1887,7 +1887,7 @@ static int sd_create_prealloc(BlockdevOptionsSheepdog *location, int64_t size,
         return -EINVAL;
     }
 
-    qdict = qobject_to_qdict(obj);
+    qdict = qobject_to(QDict, obj);
     qdict_flatten(qdict);
 
     qdict_put_str(qdict, "driver", "sheepdog");

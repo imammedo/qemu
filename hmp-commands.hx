@@ -106,7 +106,8 @@ ETEXI
         .args_type  = "force:-f,device:B",
         .params     = "[-f] device",
         .help       = "stop an active background block operation (use -f"
-                      "\n\t\t\t if the operation is currently paused)",
+                      "\n\t\t\t if you want to abort the operation immediately"
+                      "\n\t\t\t instead of keep running until data is in sync)",
         .cmd        = hmp_block_job_cancel,
     },
 
@@ -253,9 +254,10 @@ ETEXI
 
     {
         .name       = "screendump",
-        .args_type  = "filename:F",
-        .params     = "filename",
-        .help       = "save screen into PPM image 'filename'",
+        .args_type  = "filename:F,device:s?,head:i?",
+        .params     = "filename [device [head]]",
+        .help       = "save screen from head 'head' of display device 'device' "
+                      "into PPM image 'filename'",
         .cmd        = hmp_screendump,
     },
 

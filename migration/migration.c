@@ -155,8 +155,13 @@ MigrationIncomingState *migration_incoming_get_current(void)
     if (!once) {
         mis_current.state = MIGRATION_STATUS_NONE;
         memset(&mis_current, 0, sizeof(MigrationIncomingState));
+        mis_current.postcopy_remote_fds = g_array_new(FALSE, TRUE,
+                                                   sizeof(struct PostCopyFD));
         qemu_mutex_init(&mis_current.rp_mutex);
         qemu_event_init(&mis_current.main_thread_load_event, false);
+
+        init_dirty_bitmap_incoming_migration();
+
         once = true;
     }
     return &mis_current;
@@ -176,6 +181,10 @@ void migration_incoming_state_destroy(void)
     if (mis->from_src_file) {
         qemu_fclose(mis->from_src_file);
         mis->from_src_file = NULL;
+    }
+    if (mis->postcopy_remote_fds) {
+        g_array_free(mis->postcopy_remote_fds, TRUE);
+        mis->postcopy_remote_fds = NULL;
     }
 
     qemu_event_reset(&mis->main_thread_load_event);
@@ -319,6 +328,8 @@ static void process_incoming_migration_bh(void *opaque)
     /* If global state section was not received or we are in running
        state, we need to obey autostart. Any other state is set with
        runstate_set. */
+
+    dirty_bitmap_mig_before_vm_start();
 
     if (!global_state_received() ||
         global_state_get_runstate() == RUN_STATE_RUNNING) {
@@ -747,13 +758,15 @@ void qmp_migrate_set_capabilities(MigrationCapabilityStatusList *params,
 {
     MigrationState *s = migrate_get_current();
     MigrationCapabilityStatusList *cap;
+    bool cap_list[MIGRATION_CAPABILITY__MAX];
 
     if (migration_is_setup_or_active(s->state)) {
         error_setg(errp, QERR_MIGRATION_ACTIVE);
         return;
     }
 
-    if (!migrate_caps_check(s->enabled_capabilities, params, errp)) {
+    memcpy(cap_list, s->enabled_capabilities, sizeof(cap_list));
+    if (!migrate_caps_check(cap_list, params, errp)) {
         return;
     }
 
@@ -1020,7 +1033,7 @@ void qmp_migrate_start_postcopy(Error **errp)
 {
     MigrationState *s = migrate_get_current();
 
-    if (!migrate_postcopy_ram()) {
+    if (!migrate_postcopy()) {
         error_setg(errp, "Enable postcopy with migrate_set_capability before"
                          " the start of migration");
         return;
@@ -1415,6 +1428,7 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
                    "a valid migration protocol");
         migrate_set_state(&s->state, MIGRATION_STATUS_SETUP,
                           MIGRATION_STATUS_FAILED);
+        block_cleanup_parameters(s);
         return;
     }
 
@@ -1506,7 +1520,7 @@ bool migrate_postcopy_ram(void)
 
 bool migrate_postcopy(void)
 {
-    return migrate_postcopy_ram();
+    return migrate_postcopy_ram() || migrate_dirty_bitmaps();
 }
 
 bool migrate_auto_converge(void)
@@ -1561,6 +1575,15 @@ int migrate_decompress_threads(void)
     s = migrate_get_current();
 
     return s->parameters.decompress_threads;
+}
+
+bool migrate_dirty_bitmaps(void)
+{
+    MigrationState *s;
+
+    s = migrate_get_current();
+
+    return s->enabled_capabilities[MIGRATION_CAPABILITY_DIRTY_BITMAPS];
 }
 
 bool migrate_use_events(void)
@@ -2240,20 +2263,20 @@ typedef enum {
  */
 static MigIterateState migration_iteration_run(MigrationState *s)
 {
-    uint64_t pending_size, pend_post, pend_nonpost;
+    uint64_t pending_size, pend_pre, pend_compat, pend_post;
     bool in_postcopy = s->state == MIGRATION_STATUS_POSTCOPY_ACTIVE;
 
-    qemu_savevm_state_pending(s->to_dst_file, s->threshold_size,
-                              &pend_nonpost, &pend_post);
-    pending_size = pend_nonpost + pend_post;
+    qemu_savevm_state_pending(s->to_dst_file, s->threshold_size, &pend_pre,
+                              &pend_compat, &pend_post);
+    pending_size = pend_pre + pend_compat + pend_post;
 
     trace_migrate_pending(pending_size, s->threshold_size,
-                          pend_post, pend_nonpost);
+                          pend_pre, pend_compat, pend_post);
 
     if (pending_size && pending_size >= s->threshold_size) {
         /* Still a significant amount to transfer */
         if (migrate_postcopy() && !in_postcopy &&
-            pend_nonpost <= s->threshold_size &&
+            pend_pre <= s->threshold_size &&
             atomic_read(&s->start_postcopy)) {
             if (postcopy_start(s)) {
                 error_report("%s: postcopy failed to start", __func__);
@@ -2541,6 +2564,7 @@ static void migration_instance_finalize(Object *obj)
     g_free(params->tls_hostname);
     g_free(params->tls_creds);
     qemu_sem_destroy(&ms->pause_sem);
+    error_free(ms->error);
 }
 
 static void migration_instance_init(Object *obj)

@@ -23,12 +23,14 @@ import subprocess
 import string
 import unittest
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'))
-import qtest
 import struct
 import json
 import signal
 import logging
+import atexit
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'))
+import qtest
 
 
 # This will not work if arguments contain spaces but is necessary if we
@@ -247,6 +249,37 @@ class FilePath(object):
         except OSError:
             pass
         return False
+
+
+def file_path_remover():
+    for path in reversed(file_path_remover.paths):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def file_path(*names):
+    ''' Another way to get auto-generated filename that cleans itself up.
+
+    Use is as simple as:
+
+    img_a, img_b = file_path('a.img', 'b.img')
+    sock = file_path('socket')
+    '''
+
+    if not hasattr(file_path_remover, 'paths'):
+        file_path_remover.paths = []
+        atexit.register(file_path_remover)
+
+    paths = []
+    for name in names:
+        filename = '{0}-{1}'.format(os.getpid(), name)
+        path = os.path.join(test_dir, filename)
+        file_path_remover.paths.append(path)
+        paths.append(path)
+
+    return paths[0] if len(paths) == 1 else paths
 
 
 class VM(qtest.QEMUQtestMachine):
@@ -473,16 +506,20 @@ class QMPTestCase(unittest.TestCase):
         event = self.wait_until_completed(drive=drive)
         self.assert_qmp(event, 'data/type', 'mirror')
 
-    def pause_job(self, job_id='job0'):
-        result = self.vm.qmp('block-job-pause', device=job_id)
-        self.assert_qmp(result, 'return', {})
-
+    def pause_wait(self, job_id='job0'):
         with Timeout(1, "Timeout waiting for job to pause"):
             while True:
                 result = self.vm.qmp('query-block-jobs')
                 for job in result['return']:
                     if job['device'] == job_id and job['paused'] == True and job['busy'] == False:
                         return job
+
+    def pause_job(self, job_id='job0', wait=True):
+        result = self.vm.qmp('block-job-pause', device=job_id)
+        self.assert_qmp(result, 'return', {})
+        if wait:
+            return self.pause_wait(job_id)
+        return result
 
 
 def notrun(reason):
@@ -504,6 +541,10 @@ def verify_platform(supported_oses=['linux']):
     if True not in [sys.platform.startswith(x) for x in supported_oses]:
         notrun('not suitable for this OS: %s' % sys.platform)
 
+def verify_cache_mode(supported_cache_modes=[]):
+    if supported_cache_modes and (cachemode not in supported_cache_modes):
+        notrun('not suitable for this cache mode: %s' % cachemode)
+
 def supports_quorum():
     return 'quorum' in qemu_img_pipe('--help')
 
@@ -512,7 +553,7 @@ def verify_quorum():
     if not supports_quorum():
         notrun('quorum support missing')
 
-def main(supported_fmts=[], supported_oses=['linux']):
+def main(supported_fmts=[], supported_oses=['linux'], supported_cache_modes=[]):
     '''Run tests'''
 
     global debug
@@ -529,6 +570,7 @@ def main(supported_fmts=[], supported_oses=['linux']):
     verbosity = 1
     verify_image_format(supported_fmts)
     verify_platform(supported_oses)
+    verify_cache_mode(supported_cache_modes)
 
     # We need to filter out the time taken from the output so that qemu-iotest
     # can reliably diff the results against master output.

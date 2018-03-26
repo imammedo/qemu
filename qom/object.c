@@ -891,6 +891,19 @@ GSList *object_class_get_list(const char *implements_type,
     return list;
 }
 
+static gint object_class_cmp(gconstpointer a, gconstpointer b)
+{
+    return strcasecmp(object_class_get_name((ObjectClass *)a),
+                      object_class_get_name((ObjectClass *)b));
+}
+
+GSList *object_class_get_list_sorted(const char *implements_type,
+                                     bool include_abstract)
+{
+    return g_slist_sort(object_class_get_list(implements_type, include_abstract),
+                        object_class_cmp);
+}
+
 void object_ref(Object *obj)
 {
     if (!obj) {
@@ -1123,18 +1136,15 @@ char *object_property_get_str(Object *obj, const char *name,
                               Error **errp)
 {
     QObject *ret = object_property_get_qobject(obj, name, errp);
-    QString *qstring;
     char *retval;
 
     if (!ret) {
         return NULL;
     }
-    qstring = qobject_to_qstring(ret);
-    if (!qstring) {
+
+    retval = g_strdup(qobject_get_try_str(ret));
+    if (!retval) {
         error_setg(errp, QERR_INVALID_PARAMETER_TYPE, name, "string");
-        retval = NULL;
-    } else {
-        retval = g_strdup(qstring_get_str(qstring));
     }
 
     qobject_decref(ret);
@@ -1190,7 +1200,7 @@ bool object_property_get_bool(Object *obj, const char *name,
     if (!ret) {
         return false;
     }
-    qbool = qobject_to_qbool(ret);
+    qbool = qobject_to(QBool, ret);
     if (!qbool) {
         error_setg(errp, QERR_INVALID_PARAMETER_TYPE, name, "boolean");
         retval = false;
@@ -1222,7 +1232,7 @@ int64_t object_property_get_int(Object *obj, const char *name,
         return -1;
     }
 
-    qnum = qobject_to_qnum(ret);
+    qnum = qobject_to(QNum, ret);
     if (!qnum || !qnum_get_try_int(qnum, &retval)) {
         error_setg(errp, QERR_INVALID_PARAMETER_TYPE, name, "int");
         retval = -1;
@@ -1251,7 +1261,7 @@ uint64_t object_property_get_uint(Object *obj, const char *name,
     if (!ret) {
         return 0;
     }
-    qnum = qobject_to_qnum(ret);
+    qnum = qobject_to(QNum, ret);
     if (!qnum || !qnum_get_try_uint(qnum, &retval)) {
         error_setg(errp, QERR_INVALID_PARAMETER_TYPE, name, "uint");
         retval = 0;
