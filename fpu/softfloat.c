@@ -1146,15 +1146,15 @@ static FloatParts div_floats(FloatParts a, FloatParts b, float_status *s)
         a.cls = float_class_dnan;
         return a;
     }
+    /* Inf / x or 0 / x */
+    if (a.cls == float_class_inf || a.cls == float_class_zero) {
+        a.sign = sign;
+        return a;
+    }
     /* Div 0 => Inf */
     if (b.cls == float_class_zero) {
         s->float_exception_flags |= float_flag_divbyzero;
         a.cls = float_class_inf;
-        a.sign = sign;
-        return a;
-    }
-    /* Inf / x or 0 / x */
-    if (a.cls == float_class_inf || a.cls == float_class_zero) {
         a.sign = sign;
         return a;
     }
@@ -1878,6 +1878,12 @@ static FloatParts scalbn_decomposed(FloatParts a, int n, float_status *s)
         return return_nan(a, s);
     }
     if (a.cls == float_class_normal) {
+        /* The largest float type (even though not supported by FloatParts)
+         * is float128, which has a 15 bit exponent.  Bounding N to 16 bits
+         * still allows rounding to infinity, without allowing overflow
+         * within the int32_t that backs FloatParts.exp.
+         */
+        n = MIN(MAX(n, -0x10000), 0x10000);
         a.exp += n;
     }
     return a;
