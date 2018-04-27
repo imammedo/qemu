@@ -154,7 +154,8 @@ QEMUClockType rtc_clock;
 int vga_interface_type = VGA_NONE;
 static DisplayOptions dpy;
 int no_frame;
-Chardev *serial_hds[MAX_SERIAL_PORTS];
+static int num_serial_hds = 0;
+static Chardev **serial_hds = NULL;
 Chardev *parallel_hds[MAX_PARALLEL_PORTS];
 Chardev *virtcon_hds[MAX_VIRTIO_CONSOLES];
 Chardev *sclp_hds[MAX_SCLP_CONSOLES];
@@ -2142,9 +2143,13 @@ static void parse_display(const char *p)
                 opts = nextopt;
                 dpy.has_gl = true;
                 if (strstart(opts, "on", &nextopt)) {
-                    dpy.gl = true;
+                    dpy.gl = DISPLAYGL_MODE_ON;
+                } else if (strstart(opts, "core", &nextopt)) {
+                    dpy.gl = DISPLAYGL_MODE_CORE;
+                } else if (strstart(opts, "es", &nextopt)) {
+                    dpy.gl = DISPLAYGL_MODE_ES;
                 } else if (strstart(opts, "off", &nextopt)) {
-                    dpy.gl = false;
+                    dpy.gl = DISPLAYGL_MODE_OFF;
                 } else {
                     goto invalid_sdl_args;
                 }
@@ -2185,9 +2190,9 @@ static void parse_display(const char *p)
                 opts = nextopt;
                 dpy.has_gl = true;
                 if (strstart(opts, "on", &nextopt)) {
-                    dpy.gl = true;
+                    dpy.gl = DISPLAYGL_MODE_ON;
                 } else if (strstart(opts, "off", &nextopt)) {
-                    dpy.gl = false;
+                    dpy.gl = DISPLAYGL_MODE_OFF;
                 } else {
                     goto invalid_gtk_args;
                 }
@@ -2496,24 +2501,36 @@ static int foreach_device_config(int type, int (*func)(const char *cmdline))
 
 static int serial_parse(const char *devname)
 {
-    static int index = 0;
+    int index = num_serial_hds;
     char label[32];
 
     if (strcmp(devname, "none") == 0)
         return 0;
-    if (index == MAX_SERIAL_PORTS) {
-        error_report("too many serial ports");
-        exit(1);
-    }
     snprintf(label, sizeof(label), "serial%d", index);
+    serial_hds = g_renew(Chardev *, serial_hds, index + 1);
+
     serial_hds[index] = qemu_chr_new(label, devname);
     if (!serial_hds[index]) {
         error_report("could not connect serial device"
                      " to character backend '%s'", devname);
         return -1;
     }
-    index++;
+    num_serial_hds++;
     return 0;
+}
+
+Chardev *serial_hd(int i)
+{
+    assert(i >= 0);
+    if (i < num_serial_hds) {
+        return serial_hds[i];
+    }
+    return NULL;
+}
+
+int serial_max_hds(void)
+{
+    return num_serial_hds;
 }
 
 static int parallel_parse(const char *devname)
@@ -4343,7 +4360,7 @@ int main(int argc, char **argv, char **envp)
     qemu_display_early_init(&dpy);
     qemu_console_early_init();
 
-    if (dpy.has_gl && dpy.gl && display_opengl == 0) {
+    if (dpy.has_gl && dpy.gl != DISPLAYGL_MODE_OFF && display_opengl == 0) {
 #if defined(CONFIG_OPENGL)
         error_report("OpenGL is not supported by the display");
 #else
@@ -4729,6 +4746,7 @@ int main(int argc, char **argv, char **envp)
         vm_start();
     }
 
+    accel_setup_post(current_machine);
     os_setup_post();
 
     main_loop();
