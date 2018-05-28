@@ -40,9 +40,7 @@
 #include "qom/qom-qobject.h"
 #include "sysemu/arch_init.h"
 
-#if defined(CONFIG_KVM)
-#include <linux/kvm_para.h>
-#endif
+#include "standard-headers/asm-x86/kvm_para.h"
 
 #include "sysemu/sysemu.h"
 #include "hw/qdev-properties.h"
@@ -805,7 +803,7 @@ static FeatureWordInfo feature_word_info[FEATURE_WORDS] = {
             NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL,
             NULL, NULL, "spec-ctrl", NULL,
-            NULL, NULL, NULL, NULL,
+            NULL, NULL, NULL, "ssbd",
         },
         .cpuid_eax = 7,
         .cpuid_needs_ecx = true, .cpuid_ecx = 0,
@@ -836,7 +834,7 @@ static FeatureWordInfo feature_word_info[FEATURE_WORDS] = {
             "ibpb", NULL, NULL, NULL,
             NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL,
-            NULL, NULL, NULL, NULL,
+            NULL, "virt-ssbd", NULL, NULL,
             NULL, NULL, NULL, NULL,
         },
         .cpuid_eax = 0x80000008,
