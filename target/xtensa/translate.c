@@ -377,9 +377,9 @@ static void gen_jump_slot(DisasContext *dc, TCGv dest, int slot)
     } else {
         if (slot >= 0) {
             tcg_gen_goto_tb(slot);
-            tcg_gen_exit_tb((uintptr_t)dc->tb + slot);
+            tcg_gen_exit_tb(dc->tb, slot);
         } else {
-            tcg_gen_exit_tb(0);
+            tcg_gen_exit_tb(NULL, 0);
         }
     }
     dc->is_jmp = DISAS_UPDATE;
@@ -2234,7 +2234,7 @@ static void translate_rur(DisasContext *dc, const uint32_t arg[],
         if (uregnames[par[0]].name) {
             tcg_gen_mov_i32(cpu_R[arg[0]], cpu_UR[par[0]]);
         } else {
-            qemu_log_mask(LOG_UNIMP, "RUR %d not implemented, ", par[0]);
+            qemu_log_mask(LOG_UNIMP, "RUR %d not implemented\n", par[0]);
         }
     }
 }
@@ -2375,7 +2375,7 @@ static void translate_slli(DisasContext *dc, const uint32_t arg[],
 {
     if (gen_window_check2(dc, arg[0], arg[1])) {
         if (arg[2] == 32) {
-            qemu_log_mask(LOG_GUEST_ERROR, "slli a%d, a%d, 32 is undefined",
+            qemu_log_mask(LOG_GUEST_ERROR, "slli a%d, a%d, 32 is undefined\n",
                           arg[0], arg[1]);
         }
         tcg_gen_shli_i32(cpu_R[arg[0]], cpu_R[arg[1]], arg[2] & 0x1f);
@@ -2571,7 +2571,7 @@ static void translate_wur(DisasContext *dc, const uint32_t arg[],
         if (uregnames[par[0]].name) {
             gen_wur(par[0], cpu_R[arg[0]]);
         } else {
-            qemu_log_mask(LOG_UNIMP, "WUR %d not implemented, ", par[0]);
+            qemu_log_mask(LOG_UNIMP, "WUR %d not implemented\n", par[0]);
         }
     }
 }

@@ -2922,6 +2922,11 @@ The @code{-startdate} option has been replaced by @code{-rtc base=@var{date}}.
 Option @option{-virtioconsole} has been replaced by
 @option{-device virtconsole}.
 
+@subsection -clock (since 3.0.0)
+
+The @code{-clock} option is ignored since QEMU version 1.7.0. There is no
+replacement since it is not needed anymore.
+
 @section qemu-img command line arguments
 
 @subsection convert -s (since 2.0.0)
@@ -2959,11 +2964,6 @@ should be used instead. That means that embedded 4xx PowerPC CPUs will not
 support page sizes < 4096 any longer.
 
 @section System emulator machines
-
-@subsection Xilinx EP108 (since 2.11.0)
-
-The ``xlnx-ep108'' machine has been replaced by the ``xlnx-zcu102'' machine.
-The ``xlnx-zcu102'' machine has the same features and capabilites in QEMU.
 
 @section Block device options
 

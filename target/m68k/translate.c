@@ -1491,10 +1491,10 @@ static void gen_jmp_tb(DisasContext *s, int n, uint32_t dest)
     } else if (use_goto_tb(s, dest)) {
         tcg_gen_goto_tb(n);
         tcg_gen_movi_i32(QREG_PC, dest);
-        tcg_gen_exit_tb((uintptr_t)s->tb + n);
+        tcg_gen_exit_tb(s->tb, n);
     } else {
         gen_jmp_im(s, dest);
-        tcg_gen_exit_tb(0);
+        tcg_gen_exit_tb(NULL, 0);
     }
     s->is_jmp = DISAS_TB_JUMP;
 }
@@ -1556,7 +1556,7 @@ DISAS_INSN(undef)
     /* ??? This is both instructions that are as yet unimplemented
        for the 680x0 series, as well as those that are implemented
        but actually illegal for CPU32 or pre-68020.  */
-    qemu_log_mask(LOG_UNIMP, "Illegal instruction: %04x @ %08x",
+    qemu_log_mask(LOG_UNIMP, "Illegal instruction: %04x @ %08x\n",
                   insn, s->insn_pc);
     gen_exception(s, s->insn_pc, EXCP_UNSUPPORTED);
 }
@@ -6147,7 +6147,7 @@ void gen_intermediate_code(CPUState *cs, TranslationBlock *tb)
         case DISAS_UPDATE:
             update_cc_op(dc);
             /* indicate that the hash table must be used to find the next TB */
-            tcg_gen_exit_tb(0);
+            tcg_gen_exit_tb(NULL, 0);
             break;
         case DISAS_TB_JUMP:
             /* nothing more to generate */
