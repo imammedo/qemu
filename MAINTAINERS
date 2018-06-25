@@ -135,6 +135,8 @@ M: Peter Maydell <peter.maydell@linaro.org>
 L: qemu-arm@nongnu.org
 S: Maintained
 F: target/arm/
+F: tests/tcg/arm/
+F: tests/tcg/aarch64/
 F: hw/arm/
 F: hw/cpu/a*mpcore.c
 F: include/hw/cpu/a*mpcore.h
@@ -283,6 +285,8 @@ M: Richard Henderson <rth@twiddle.net>
 M: Eduardo Habkost <ehabkost@redhat.com>
 S: Maintained
 F: target/i386/
+F: tests/tcg/i386/
+F: tests/tcg/x86_64/
 F: hw/i386/
 F: disas/i386.c
 T: git git://github.com/ehabkost/qemu.git x86-next
@@ -302,6 +306,10 @@ S: Maintained
 F: target/tricore/
 F: hw/tricore/
 F: include/hw/tricore/
+
+Multiarch Linux User Tests
+M: Alex Bennée <alex.bennee@linaro.org>
+F: tests/tcg/multiarch/
 
 Guest CPU Cores (KVM):
 ----------------------
@@ -449,6 +457,8 @@ F: hw/char/cmsdk-apb-uart.c
 F: include/hw/char/cmsdk-apb-uart.h
 F: hw/misc/tz-ppc.c
 F: include/hw/misc/tz-ppc.h
+F: hw/misc/tz-mpc.c
+F: include/hw/misc/tz-mpc.h
 
 ARM cores
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -1615,7 +1625,8 @@ F: tests/test-*-visitor.c
 F: tests/test-qapi-*.c
 F: tests/test-qmp-*.c
 F: tests/test-visitor-serialization.c
-F: scripts/qapi*
+F: scripts/qapi-gen.py
+F: scripts/qapi/*
 F: docs/devel/qapi*
 T: git git://repo.or.cz/qemu/armbru.git qapi-next
 
@@ -1972,6 +1983,7 @@ F: nbd/
 F: include/block/nbd*
 F: qemu-nbd.*
 F: blockdev-nbd.c
+F: docs/interop/nbd.txt
 T: git git://repo.or.cz/qemu/ericb.git nbd
 
 NFS
@@ -2147,6 +2159,13 @@ F: tests/vm/
 W: https://travis-ci.org/qemu/qemu
 W: https://app.shippable.com/github/qemu/qemu
 W: http://patchew.org/QEMU/
+
+Guest Test Compilation Support
+M: Alex Bennée <alex.bennee@linaro.org>
+R: Philippe Mathieu-Daudé <f4bug@amsat.org>
+F: tests/tcg/Makefile
+F: tests/tcg/Makefile.include
+L: qemu-devel@nongnu.org
 
 Documentation
 -------------

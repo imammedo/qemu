@@ -1031,9 +1031,7 @@ const char *parse_cpu_model(const char *cpu_model)
 static void breakpoint_invalidate(CPUState *cpu, target_ulong pc)
 {
     mmap_lock();
-    tb_lock();
     tb_invalidate_phys_page_range(pc, pc + 1, 0);
-    tb_unlock();
     mmap_unlock();
 }
 #else
@@ -1325,6 +1323,7 @@ static void tlb_reset_dirty_range_all(ram_addr_t start, ram_addr_t length)
     RAMBlock *block;
     ram_addr_t end;
 
+    assert(tcg_enabled());
     end = TARGET_PAGE_ALIGN(start + length);
     start &= TARGET_PAGE_MASK;
 
@@ -2644,21 +2643,22 @@ void memory_notdirty_write_prepare(NotDirtyInfo *ndi,
     ndi->ram_addr = ram_addr;
     ndi->mem_vaddr = mem_vaddr;
     ndi->size = size;
-    ndi->locked = false;
+    ndi->pages = NULL;
 
     assert(tcg_enabled());
     if (!cpu_physical_memory_get_dirty_flag(ram_addr, DIRTY_MEMORY_CODE)) {
-        ndi->locked = true;
-        tb_lock();
-        tb_invalidate_phys_page_fast(ram_addr, size);
+        ndi->pages = page_collection_lock(ram_addr, ram_addr + size);
+        tb_invalidate_phys_page_fast(ndi->pages, ram_addr, size);
     }
 }
 
 /* Called within RCU critical section. */
 void memory_notdirty_write_complete(NotDirtyInfo *ndi)
 {
-    if (ndi->locked) {
-        tb_unlock();
+    if (ndi->pages) {
+        assert(tcg_enabled());
+        page_collection_unlock(ndi->pages);
+        ndi->pages = NULL;
     }
 
     /* Set both VGA and migration bits for simplicity and to remove
@@ -2745,18 +2745,16 @@ static void check_watchpoint(int offset, int len, MemTxAttrs attrs, int flags)
                 }
                 cpu->watchpoint_hit = wp;
 
-                /* Both tb_lock and iothread_mutex will be reset when
-                 * cpu_loop_exit or cpu_loop_exit_noexc longjmp
-                 * back into the cpu_exec main loop.
-                 */
-                tb_lock();
+                mmap_lock();
                 tb_check_watchpoint(cpu);
                 if (wp->flags & BP_STOP_BEFORE_ACCESS) {
                     cpu->exception_index = EXCP_DEBUG;
+                    mmap_unlock();
                     cpu_loop_exit(cpu);
                 } else {
                     /* Force execution of one insn next time.  */
                     cpu->cflags_next_tb = 1 | curr_cflags();
+                    mmap_unlock();
                     cpu_loop_exit_noexc(cpu);
                 }
             }
@@ -3050,6 +3048,7 @@ static void tcg_commit(MemoryListener *listener)
     CPUAddressSpace *cpuas;
     AddressSpaceDispatch *d;
 
+    assert(tcg_enabled());
     /* since each CPU stores ram addresses in its TLB cache, we must
        reset the modified entries */
     cpuas = container_of(listener, CPUAddressSpace, tcg_as_listener);
@@ -3147,9 +3146,9 @@ static void invalidate_and_set_dirty(MemoryRegion *mr, hwaddr addr,
     }
     if (dirty_log_mask & (1 << DIRTY_MEMORY_CODE)) {
         assert(tcg_enabled());
-        tb_lock();
+        mmap_lock();
         tb_invalidate_phys_range(addr, addr + length);
-        tb_unlock();
+        mmap_unlock();
         dirty_log_mask &= ~(1 << DIRTY_MEMORY_CODE);
     }
     cpu_physical_memory_set_dirty_range(addr, length, dirty_log_mask);
