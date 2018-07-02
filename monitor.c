@@ -541,37 +541,54 @@ struct QMPResponse {
 };
 typedef struct QMPResponse QMPResponse;
 
+static QObject *monitor_qmp_response_pop_one(Monitor *mon)
+{
+    QObject *data;
+
+    qemu_mutex_lock(&mon->qmp.qmp_queue_lock);
+    data = g_queue_pop_head(mon->qmp.qmp_responses);
+    qemu_mutex_unlock(&mon->qmp.qmp_queue_lock);
+
+    return data;
+}
+
+static void monitor_qmp_response_flush(Monitor *mon)
+{
+    QObject *data;
+
+    while ((data = monitor_qmp_response_pop_one(mon))) {
+        monitor_json_emitter_raw(mon, data);
+        qobject_unref(data);
+    }
+}
+
 /*
- * Return one QMPResponse.  The response is only valid if
- * response.data is not NULL.
+ * Pop a QMPResponse from any monitor's response queue into @response.
+ * Return false if all the queues are empty; else true.
  */
-static QMPResponse monitor_qmp_response_pop_one(void)
+static bool monitor_qmp_response_pop_any(QMPResponse *response)
 {
     Monitor *mon;
     QObject *data = NULL;
 
     qemu_mutex_lock(&monitor_lock);
     QTAILQ_FOREACH(mon, &mon_list, entry) {
-        qemu_mutex_lock(&mon->qmp.qmp_queue_lock);
-        data = g_queue_pop_head(mon->qmp.qmp_responses);
-        qemu_mutex_unlock(&mon->qmp.qmp_queue_lock);
+        data = monitor_qmp_response_pop_one(mon);
         if (data) {
+            response->mon = mon;
+            response->data = data;
             break;
         }
     }
     qemu_mutex_unlock(&monitor_lock);
-    return (QMPResponse) { .mon = mon, .data = data };
+    return data != NULL;
 }
 
 static void monitor_qmp_bh_responder(void *opaque)
 {
     QMPResponse response;
 
-    while (true) {
-        response = monitor_qmp_response_pop_one();
-        if (!response.data) {
-            break;
-        }
+    while (monitor_qmp_response_pop_any(&response)) {
         monitor_json_emitter_raw(response.mon, response.data);
         qobject_unref(response.data);
     }
@@ -820,9 +837,7 @@ static int compare_cmd(const char *name, const char *list)
     p = list;
     for(;;) {
         pstart = p;
-        p = strchr(p, '|');
-        if (!p)
-            p = pstart + strlen(pstart);
+        p = qemu_strchrnul(p, '|');
         if ((p - pstart) == len && !memcmp(pstart, name, len))
             return 1;
         if (*p == '\0')
@@ -2007,8 +2022,10 @@ static void hmp_info_mtree(Monitor *mon, const QDict *qdict)
 {
     bool flatview = qdict_get_try_bool(qdict, "flatview", false);
     bool dispatch_tree = qdict_get_try_bool(qdict, "dispatch_tree", false);
+    bool owner = qdict_get_try_bool(qdict, "owner", false);
 
-    mtree_info((fprintf_function)monitor_printf, mon, flatview, dispatch_tree);
+    mtree_info((fprintf_function)monitor_printf, mon, flatview, dispatch_tree,
+               owner);
 }
 
 static void hmp_info_numa(Monitor *mon, const QDict *qdict)
@@ -3489,9 +3506,7 @@ static void cmd_completion(Monitor *mon, const char *name, const char *list)
     p = list;
     for(;;) {
         pstart = p;
-        p = strchr(p, '|');
-        if (!p)
-            p = pstart + strlen(pstart);
+        p = qemu_strchrnul(p, '|');
         len = p - pstart;
         if (len > sizeof(cmd) - 2)
             len = sizeof(cmd) - 2;
@@ -4201,7 +4216,7 @@ static void monitor_qmp_dispatch_one(QMPRequest *req_obj)
  * when we process one request on a specific monitor, we put that
  * monitor to the end of mon_list queue.
  */
-static QMPRequest *monitor_qmp_requests_pop_one(void)
+static QMPRequest *monitor_qmp_requests_pop_any(void)
 {
     QMPRequest *req_obj = NULL;
     Monitor *mon;
@@ -4233,7 +4248,7 @@ static QMPRequest *monitor_qmp_requests_pop_one(void)
 
 static void monitor_qmp_bh_dispatcher(void *data)
 {
-    QMPRequest *req_obj = monitor_qmp_requests_pop_one();
+    QMPRequest *req_obj = monitor_qmp_requests_pop_any();
 
     if (req_obj) {
         trace_monitor_qmp_cmd_in_band(qobject_get_try_str(req_obj->id) ?: "");
@@ -4460,6 +4475,13 @@ static void monitor_qmp_event(void *opaque, int event)
         mon_refcount++;
         break;
     case CHR_EVENT_CLOSED:
+        /*
+         * Note: this is only useful when the output of the chardev
+         * backend is still open.  For example, when the backend is
+         * stdio, it's possible that stdout is still open when stdin
+         * is closed.
+         */
+        monitor_qmp_response_flush(mon);
         monitor_qmp_cleanup_queues(mon);
         json_message_parser_destroy(&mon->qmp.parser);
         json_message_parser_init(&mon->qmp.parser, handle_qmp_command);

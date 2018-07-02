@@ -29,6 +29,7 @@
 #include "qapi/error.h"
 #include "qemu/timer.h"
 #include "qemu/error-report.h"
+#include "trace.h"
 
 //#define DEBUG_SERIAL
 
@@ -260,7 +261,7 @@ static void serial_xmit(SerialState *s)
         if (s->mcr & UART_MCR_LOOP) {
             /* in loopback mode, say that we just received a char */
             serial_receive1(s, &s->tsr, 1);
-        } else if (qemu_chr_fe_write(&s->chr, &s->tsr, 1) != 1 &&
+        } else if (qemu_chr_fe_write(&s->chr, &s->tsr, 1) == 0 &&
                    s->tsr_retry < MAX_XMIT_RETRY) {
             assert(s->watch_tag == 0);
             s->watch_tag =
@@ -335,7 +336,7 @@ static void serial_ioport_write(void *opaque, hwaddr addr, uint64_t val,
     SerialState *s = opaque;
 
     addr &= 7;
-    DPRINTF("write addr=0x%" HWADDR_PRIx " val=0x%" PRIx64 "\n", addr, val);
+    trace_serial_ioport_write(addr, val);
     switch(addr) {
     default:
     case 0:
@@ -548,7 +549,7 @@ static uint64_t serial_ioport_read(void *opaque, hwaddr addr, unsigned size)
         ret = s->scr;
         break;
     }
-    DPRINTF("read addr=0x%" HWADDR_PRIx " val=0x%02x\n", addr, ret);
+    trace_serial_ioport_read(addr, ret);
     return ret;
 }
 
