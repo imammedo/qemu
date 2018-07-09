@@ -2522,6 +2522,8 @@ static abi_long host_to_target_data_link_rtattr(struct rtattr *rtattr)
     case QEMU_IFLA_NUM_VF:
     case QEMU_IFLA_GSO_MAX_SEGS:
     case QEMU_IFLA_GSO_MAX_SIZE:
+    case QEMU_IFLA_CARRIER_UP_COUNT:
+    case QEMU_IFLA_CARRIER_DOWN_COUNT:
         u32 = RTA_DATA(rtattr);
         *u32 = tswap32(*u32);
         break;
@@ -3017,6 +3019,8 @@ static abi_long do_setsockopt(int sockfd, int level, int optname,
         case IPV6_V6ONLY:
         case IPV6_RECVPKTINFO:
         case IPV6_UNICAST_HOPS:
+        case IPV6_MULTICAST_HOPS:
+        case IPV6_MULTICAST_LOOP:
         case IPV6_RECVERR:
         case IPV6_RECVHOPLIMIT:
         case IPV6_2292HOPLIMIT:
@@ -8018,10 +8022,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         }
 
         cpu_list_unlock();
-#ifdef TARGET_GPROF
-        _mcleanup();
-#endif
-        gdb_exit(cpu_env, arg1);
+        preexit_cleanup(cpu_env, arg1);
         _exit(arg1);
         ret = 0; /* avoid warning */
         break;
@@ -10127,10 +10128,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
 #ifdef __NR_exit_group
         /* new thread calls */
     case TARGET_NR_exit_group:
-#ifdef TARGET_GPROF
-        _mcleanup();
-#endif
-        gdb_exit(cpu_env, arg1);
+        preexit_cleanup(cpu_env, arg1);
         ret = get_errno(exit_group(arg1));
         break;
 #endif

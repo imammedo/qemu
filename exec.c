@@ -1046,6 +1046,10 @@ void tb_invalidate_phys_addr(AddressSpace *as, hwaddr addr, MemTxAttrs attrs)
     MemoryRegion *mr;
     hwaddr l = 1;
 
+    if (!tcg_enabled()) {
+        return;
+    }
+
     rcu_read_lock();
     mr = address_space_translate(as, addr, &addr, &l, false, attrs);
     if (!(memory_region_is_ram(mr)

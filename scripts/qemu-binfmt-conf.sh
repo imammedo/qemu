@@ -1,10 +1,10 @@
 #!/bin/sh
-# enable automatic i386/ARM/M68K/MIPS/SPARC/PPC/s390/HPPA/Xtensa/microblaze
-# program execution by the kernel
+# Enable automatic program execution by the kernel.
 
 qemu_target_list="i386 i486 alpha arm armeb sparc32plus ppc ppc64 ppc64le m68k \
 mips mipsel mipsn32 mipsn32el mips64 mips64el \
-sh4 sh4eb s390x aarch64 aarch64_be hppa riscv32 riscv64 xtensa xtensaeb microblaze microblazeel"
+sh4 sh4eb s390x aarch64 aarch64_be hppa riscv32 riscv64 xtensa xtensaeb \
+microblaze microblazeel or1k"
 
 i386_magic='\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00'
 i386_mask='\xff\xff\xff\xff\xff\xfe\xfe\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'
@@ -124,6 +124,10 @@ microblazeel_magic='\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\
 microblazeel_mask='\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'
 microblazeel_family=microblazeel
 
+or1k_magic='\x7fELF\x01\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x5c'
+or1k_mask='\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff'
+or1k_family=or1k
+
 qemu_get_family() {
     cpu=${HOST_ARCH:-$(uname -m)}
     case "$cpu" in
@@ -161,21 +165,26 @@ usage() {
     cat <<EOF
 Usage: qemu-binfmt-conf.sh [--qemu-path PATH][--debian][--systemd CPU]
                            [--help][--credential yes|no][--exportdir PATH]
+                           [--persistent yes|no][--qemu-suffix SUFFIX]
 
        Configure binfmt_misc to use qemu interpreter
 
-       --help:       display this usage
-       --qemu-path:  set path to qemu interpreter ($QEMU_PATH)
-       --debian:     don't write into /proc,
-                     instead generate update-binfmts templates
-       --systemd:    don't write into /proc,
-                     instead generate file for systemd-binfmt.service
-                     for the given CPU. If CPU is "ALL", generate a
-                     file for all known cpus
-       --exportdir:  define where to write configuration files
-                     (default: $SYSTEMDDIR or $DEBIANDIR)
-       --credential: if yes, credential and security tokens are
-                     calculated according to the binary to interpret
+       --help:        display this usage
+       --qemu-path:   set path to qemu interpreter ($QEMU_PATH)
+       --qemu-suffix: add a suffix to the default interpreter name
+       --debian:      don't write into /proc,
+                      instead generate update-binfmts templates
+       --systemd:     don't write into /proc,
+                      instead generate file for systemd-binfmt.service
+                      for the given CPU. If CPU is "ALL", generate a
+                      file for all known cpus
+       --exportdir:   define where to write configuration files
+                      (default: $SYSTEMDDIR or $DEBIANDIR)
+       --credential:  if yes, credential and security tokens are
+                      calculated according to the binary to interpret
+       --persistent:  if yes, the interpreter is loaded when binfmt is
+                      configured and remains in memory. All future uses
+                      are cloned from the open file.
 
     To import templates with update-binfmts, use :
 
@@ -241,7 +250,15 @@ qemu_check_systemd() {
 }
 
 qemu_generate_register() {
-    echo ":qemu-$cpu:M::$magic:$mask:$qemu:$FLAGS"
+    flags=""
+    if [ "$CREDENTIAL" = "yes" ] ; then
+        flags="OC"
+    fi
+    if [ "$PERSISTENT" = "yes" ] ; then
+        flags="${flags}F"
+    fi
+
+    echo ":qemu-$cpu:M::$magic:$mask:$qemu:$flags"
 }
 
 qemu_register_interpreter() {
@@ -260,10 +277,8 @@ package qemu-$cpu
 interpreter $qemu
 magic $magic
 mask $mask
+credential $CREDENTIAL
 EOF
-    if [ "$FLAGS" = "OC" ] ; then
-        echo "credentials yes" >> "$EXPORTDIR/qemu-$cpu"
-    fi
 }
 
 qemu_set_binfmts() {
@@ -287,6 +302,7 @@ qemu_set_binfmts() {
             qemu="$QEMU_PATH/qemu-i386"
         fi
 
+        qemu="$qemu$QEMU_SUFFIX"
         if [ "$host_family" != "$family" ] ; then
             $BINFMT_SET
         fi
@@ -300,9 +316,11 @@ SYSTEMDDIR="/etc/binfmt.d"
 DEBIANDIR="/usr/share/binfmts"
 
 QEMU_PATH=/usr/local/bin
-FLAGS=""
+CREDENTIAL=no
+PERSISTENT=no
+QEMU_SUFFIX=""
 
-options=$(getopt -o ds:Q:e:hc: -l debian,systemd:,qemu-path:,exportdir:,help,credential: -- "$@")
+options=$(getopt -o ds:Q:S:e:hc:p: -l debian,systemd:,qemu-path:,qemu-suffix:,exportdir:,help,credential:,persistent: -- "$@")
 eval set -- "$options"
 
 while true ; do
@@ -338,6 +356,10 @@ while true ; do
         shift
         QEMU_PATH="$1"
         ;;
+    -F|--qemu-suffix)
+        shift
+        QEMU_SUFFIX="$1"
+        ;;
     -e|--exportdir)
         shift
         EXPORTDIR="$1"
@@ -348,11 +370,11 @@ while true ; do
         ;;
     -c|--credential)
         shift
-        if [ "$1" = "yes" ] ; then
-            FLAGS="OC"
-        else
-            FLAGS=""
-        fi
+        CREDENTIAL="$1"
+        ;;
+    -p|--persistent)
+        shift
+        PERSISTENT="$1"
         ;;
     *)
         break

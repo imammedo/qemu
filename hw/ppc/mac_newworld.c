@@ -71,7 +71,6 @@
 #include "hw/usb.h"
 #include "exec/address-spaces.h"
 #include "hw/sysbus.h"
-#include "qemu/cutils.h"
 #include "trace.h"
 
 #define MAX_IDE_BUS 2
@@ -407,11 +406,11 @@ static void ppc_core99_init(MachineState *machine)
 
         adb_bus = qdev_get_child_bus(dev, "adb.0");
         dev = qdev_create(adb_bus, TYPE_ADB_KEYBOARD);
-        qdev_prop_set_bit(dev, "disable-direct-reg3-writes", has_pmu);
+        qdev_prop_set_bit(dev, "disable-direct-reg3-writes", true);
         qdev_init_nofail(dev);
 
         dev = qdev_create(adb_bus, TYPE_ADB_MOUSE);
-        qdev_prop_set_bit(dev, "disable-direct-reg3-writes", has_pmu);
+        qdev_prop_set_bit(dev, "disable-direct-reg3-writes", true);
         qdev_init_nofail(dev);
     }
 
@@ -526,6 +525,7 @@ static void core99_machine_class_init(ObjectClass *oc, void *data)
     mc->block_default_type = IF_IDE;
     mc->max_cpus = MAX_CPUS;
     mc->default_boot_order = "cd";
+    mc->default_display = "std";
     mc->kvm_type = core99_kvm_type;
 #ifdef TARGET_PPC64
     mc->default_cpu_type = POWERPC_CPU_TYPE_NAME("970fx_v3.1");

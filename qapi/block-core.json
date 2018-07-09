@@ -2533,16 +2533,17 @@
 # @throttle: Since 2.11
 # @nvme: Since 2.12
 # @copy-on-read: Since 3.0
+# @blklogwrites: Since 3.0
 #
 # Since: 2.9
 ##
 { 'enum': 'BlockdevDriver',
-  'data': [ 'blkdebug', 'blkverify', 'bochs', 'cloop', 'copy-on-read',
-            'dmg', 'file', 'ftp', 'ftps', 'gluster', 'host_cdrom',
-            'host_device', 'http', 'https', 'iscsi', 'luks', 'nbd', 'nfs',
-            'null-aio', 'null-co', 'nvme', 'parallels', 'qcow', 'qcow2', 'qed',
-            'quorum', 'raw', 'rbd', 'replication', 'sheepdog', 'ssh',
-            'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
+  'data': [ 'blkdebug', 'blklogwrites', 'blkverify', 'bochs', 'cloop',
+            'copy-on-read', 'dmg', 'file', 'ftp', 'ftps', 'gluster',
+            'host_cdrom', 'host_device', 'http', 'https', 'iscsi', 'luks',
+            'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels', 'qcow',
+            'qcow2', 'qed', 'quorum', 'raw', 'rbd', 'replication', 'sheepdog',
+            'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
 
 ##
 # @BlockdevOptionsFile:
@@ -3045,6 +3046,30 @@
             '*set-state': ['BlkdebugSetStateOptions'] } }
 
 ##
+# @BlockdevOptionsBlklogwrites:
+#
+# Driver specific block device options for blklogwrites.
+#
+# @file:            block device
+#
+# @log:             block device used to log writes to @file
+#
+# @log-sector-size: sector size used in logging writes to @file, determines
+#                   granularity of offsets and sizes of writes (default: 512)
+#
+# @log-super-update-interval: interval of write requests after which the log
+#                             super block is updated to disk (default: 4096)
+#
+# Since: 3.0
+##
+{ 'struct': 'BlockdevOptionsBlklogwrites',
+  'data': { 'file': 'BlockdevRef',
+            'log': 'BlockdevRef',
+            '*log-sector-size': 'uint32',
+            '*log-append': 'bool',
+            '*log-super-update-interval': 'uint64' } }
+
+##
 # @BlockdevOptionsBlkverify:
 #
 # Driver specific block device options for blkverify.
@@ -3471,12 +3496,17 @@
 #
 # @tls-creds:   TLS credentials ID
 #
+# @x-dirty-bitmap: A "qemu:dirty-bitmap:NAME" string to query in place of
+#                  traditional "base:allocation" block status (see
+#                  NBD_OPT_LIST_META_CONTEXT in the NBD protocol) (since 3.0)
+#
 # Since: 2.9
 ##
 { 'struct': 'BlockdevOptionsNbd',
   'data': { 'server': 'SocketAddress',
             '*export': 'str',
-            '*tls-creds': 'str' } }
+            '*tls-creds': 'str',
+            '*x-dirty-bitmap': 'str' } }
 
 ##
 # @BlockdevOptionsRaw:
@@ -3558,6 +3588,7 @@
   'discriminator': 'driver',
   'data': {
       'blkdebug':   'BlockdevOptionsBlkdebug',
+      'blklogwrites':'BlockdevOptionsBlklogwrites',
       'blkverify':  'BlockdevOptionsBlkverify',
       'bochs':      'BlockdevOptionsGenericFormat',
       'cloop':      'BlockdevOptionsGenericFormat',
