@@ -680,6 +680,11 @@ static QemuOptsList qcow2_runtime_opts = {
             .help = "Check for unintended writes into an inactive L2 table",
         },
         {
+            .name = QCOW2_OPT_OVERLAP_BITMAP_DIRECTORY,
+            .type = QEMU_OPT_BOOL,
+            .help = "Check for unintended writes into the bitmap directory",
+        },
+        {
             .name = QCOW2_OPT_CACHE_SIZE,
             .type = QEMU_OPT_SIZE,
             .help = "Maximum combined metadata (L2 tables and refcount blocks) "
@@ -712,14 +717,15 @@ static QemuOptsList qcow2_runtime_opts = {
 };
 
 static const char *overlap_bool_option_names[QCOW2_OL_MAX_BITNR] = {
-    [QCOW2_OL_MAIN_HEADER_BITNR]    = QCOW2_OPT_OVERLAP_MAIN_HEADER,
-    [QCOW2_OL_ACTIVE_L1_BITNR]      = QCOW2_OPT_OVERLAP_ACTIVE_L1,
-    [QCOW2_OL_ACTIVE_L2_BITNR]      = QCOW2_OPT_OVERLAP_ACTIVE_L2,
-    [QCOW2_OL_REFCOUNT_TABLE_BITNR] = QCOW2_OPT_OVERLAP_REFCOUNT_TABLE,
-    [QCOW2_OL_REFCOUNT_BLOCK_BITNR] = QCOW2_OPT_OVERLAP_REFCOUNT_BLOCK,
-    [QCOW2_OL_SNAPSHOT_TABLE_BITNR] = QCOW2_OPT_OVERLAP_SNAPSHOT_TABLE,
-    [QCOW2_OL_INACTIVE_L1_BITNR]    = QCOW2_OPT_OVERLAP_INACTIVE_L1,
-    [QCOW2_OL_INACTIVE_L2_BITNR]    = QCOW2_OPT_OVERLAP_INACTIVE_L2,
+    [QCOW2_OL_MAIN_HEADER_BITNR]      = QCOW2_OPT_OVERLAP_MAIN_HEADER,
+    [QCOW2_OL_ACTIVE_L1_BITNR]        = QCOW2_OPT_OVERLAP_ACTIVE_L1,
+    [QCOW2_OL_ACTIVE_L2_BITNR]        = QCOW2_OPT_OVERLAP_ACTIVE_L2,
+    [QCOW2_OL_REFCOUNT_TABLE_BITNR]   = QCOW2_OPT_OVERLAP_REFCOUNT_TABLE,
+    [QCOW2_OL_REFCOUNT_BLOCK_BITNR]   = QCOW2_OPT_OVERLAP_REFCOUNT_BLOCK,
+    [QCOW2_OL_SNAPSHOT_TABLE_BITNR]   = QCOW2_OPT_OVERLAP_SNAPSHOT_TABLE,
+    [QCOW2_OL_INACTIVE_L1_BITNR]      = QCOW2_OPT_OVERLAP_INACTIVE_L1,
+    [QCOW2_OL_INACTIVE_L2_BITNR]      = QCOW2_OPT_OVERLAP_INACTIVE_L2,
+    [QCOW2_OL_BITMAP_DIRECTORY_BITNR] = QCOW2_OPT_OVERLAP_BITMAP_DIRECTORY,
 };
 
 static void cache_clean_timer_cb(void *opaque)
@@ -3253,13 +3259,14 @@ static int coroutine_fn
 qcow2_co_copy_range_from(BlockDriverState *bs,
                          BdrvChild *src, uint64_t src_offset,
                          BdrvChild *dst, uint64_t dst_offset,
-                         uint64_t bytes, BdrvRequestFlags flags)
+                         uint64_t bytes, BdrvRequestFlags read_flags,
+                         BdrvRequestFlags write_flags)
 {
     BDRVQcow2State *s = bs->opaque;
     int ret;
     unsigned int cur_bytes; /* number of bytes in current iteration */
     BdrvChild *child = NULL;
-    BdrvRequestFlags cur_flags;
+    BdrvRequestFlags cur_write_flags;
 
     assert(!bs->encrypted);
     qemu_co_mutex_lock(&s->lock);
@@ -3268,7 +3275,7 @@ qcow2_co_copy_range_from(BlockDriverState *bs,
         uint64_t copy_offset = 0;
         /* prepare next request */
         cur_bytes = MIN(bytes, INT_MAX);
-        cur_flags = flags;
+        cur_write_flags = write_flags;
 
         ret = qcow2_get_cluster_offset(bs, src_offset, &cur_bytes, &copy_offset);
         if (ret < 0) {
@@ -3280,26 +3287,25 @@ qcow2_co_copy_range_from(BlockDriverState *bs,
             if (bs->backing && bs->backing->bs) {
                 int64_t backing_length = bdrv_getlength(bs->backing->bs);
                 if (src_offset >= backing_length) {
-                    cur_flags |= BDRV_REQ_ZERO_WRITE;
+                    cur_write_flags |= BDRV_REQ_ZERO_WRITE;
                 } else {
                     child = bs->backing;
                     cur_bytes = MIN(cur_bytes, backing_length - src_offset);
                     copy_offset = src_offset;
                 }
             } else {
-                cur_flags |= BDRV_REQ_ZERO_WRITE;
+                cur_write_flags |= BDRV_REQ_ZERO_WRITE;
             }
             break;
 
         case QCOW2_CLUSTER_ZERO_PLAIN:
         case QCOW2_CLUSTER_ZERO_ALLOC:
-            cur_flags |= BDRV_REQ_ZERO_WRITE;
+            cur_write_flags |= BDRV_REQ_ZERO_WRITE;
             break;
 
         case QCOW2_CLUSTER_COMPRESSED:
             ret = -ENOTSUP;
             goto out;
-            break;
 
         case QCOW2_CLUSTER_NORMAL:
             child = bs->file;
@@ -3317,7 +3323,7 @@ qcow2_co_copy_range_from(BlockDriverState *bs,
         ret = bdrv_co_copy_range_from(child,
                                       copy_offset,
                                       dst, dst_offset,
-                                      cur_bytes, cur_flags);
+                                      cur_bytes, read_flags, cur_write_flags);
         qemu_co_mutex_lock(&s->lock);
         if (ret < 0) {
             goto out;
@@ -3338,14 +3344,14 @@ static int coroutine_fn
 qcow2_co_copy_range_to(BlockDriverState *bs,
                        BdrvChild *src, uint64_t src_offset,
                        BdrvChild *dst, uint64_t dst_offset,
-                       uint64_t bytes, BdrvRequestFlags flags)
+                       uint64_t bytes, BdrvRequestFlags read_flags,
+                       BdrvRequestFlags write_flags)
 {
     BDRVQcow2State *s = bs->opaque;
     int offset_in_cluster;
     int ret;
     unsigned int cur_bytes; /* number of sectors in current iteration */
     uint64_t cluster_offset;
-    uint8_t *cluster_data = NULL;
     QCowL2Meta *l2meta = NULL;
 
     assert(!bs->encrypted);
@@ -3382,7 +3388,7 @@ qcow2_co_copy_range_to(BlockDriverState *bs,
         ret = bdrv_co_copy_range_to(src, src_offset,
                                     bs->file,
                                     cluster_offset + offset_in_cluster,
-                                    cur_bytes, flags);
+                                    cur_bytes, read_flags, write_flags);
         qemu_co_mutex_lock(&s->lock);
         if (ret < 0) {
             goto fail;
@@ -3404,7 +3410,6 @@ fail:
 
     qemu_co_mutex_unlock(&s->lock);
 
-    qemu_vfree(cluster_data);
     trace_qcow2_writev_done_req(qemu_coroutine_self(), ret);
 
     return ret;

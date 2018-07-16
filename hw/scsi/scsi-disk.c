@@ -775,11 +775,12 @@ int scsi_disk_emulate_vpd_page(SCSIRequest *req, uint8_t *outbuf)
     }
     case 0xb1: /* block device characteristics */
     {
-        buflen = 8;
+        buflen = 0x40;
         outbuf[4] = (s->rotation_rate >> 8) & 0xff;
         outbuf[5] = s->rotation_rate & 0xff;
-        outbuf[6] = 0;
-        outbuf[7] = 0;
+        outbuf[6] = 0; /* PRODUCT TYPE */
+        outbuf[7] = 0; /* WABEREQ | WACEREQ | NOMINAL FORM FACTOR */
+        outbuf[8] = 0; /* VBULS */
         break;
     }
     case 0xb2: /* thin provisioning */
@@ -2378,6 +2379,7 @@ static void scsi_realize(SCSIDevice *dev, Error **errp)
         return;
     }
 
+    blkconf_serial(&s->qdev.conf, &s->serial);
     blkconf_blocksizes(&s->qdev.conf);
 
     if (s->qdev.conf.logical_block_size >
