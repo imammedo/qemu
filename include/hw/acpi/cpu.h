@@ -24,6 +24,9 @@ typedef struct AcpiCpuStatus {
     bool is_removing;
     uint32_t ost_event;
     uint32_t ost_status;
+    uint32_t cst_idx;
+    uint32_t cst_count;
+    uint32_t *cst;
 } AcpiCpuStatus;
 
 typedef struct CPUHotplugState {
@@ -32,6 +35,7 @@ typedef struct CPUHotplugState {
     uint8_t command;
     uint32_t dev_count;
     AcpiCpuStatus *devs;
+    uint32_t cst_count;
 } CPUHotplugState;
 
 void acpi_cpu_plug_cb(HotplugHandler *hotplug_dev,
@@ -50,6 +54,7 @@ void cpu_hotplug_hw_init(MemoryRegion *as, Object *owner,
 typedef struct CPUHotplugFeatures {
     bool apci_1_compatible;
     bool has_legacy_cphp;
+    uint32_t cst_count;
 } CPUHotplugFeatures;
 
 void build_cpus_aml(Aml *table, MachineState *machine, CPUHotplugFeatures opts,

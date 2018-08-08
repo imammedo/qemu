@@ -16,6 +16,7 @@ enum {
     CPHP_GET_NEXT_CPU_WITH_EVENT_CMD = 0,
     CPHP_OST_EVENT_CMD = 1,
     CPHP_OST_STATUS_CMD = 2,
+    CPHP_READ_CST_CMD = 3,
     CPHP_CMD_MAX
 };
 
@@ -73,6 +74,16 @@ static uint64_t cpu_hotplug_rd(void *opaque, hwaddr addr, unsigned size)
         case CPHP_GET_NEXT_CPU_WITH_EVENT_CMD:
            val = cpu_st->selector;
            break;
+        case CPHP_READ_CST_CMD:
+            val = 0xFFFFFFFF;
+            if (cdev->cst_idx == 0) {
+                val = cpu_to_le32(cpu_st->cst_count);
+                cdev->cst_idx++;
+            } else if (cdev->cst_idx <= (cpu_st->cst_count * 9)) {
+                val = cpu_to_le32(cdev->cst[cdev->cst_idx - 1]);
+                cdev->cst_idx++;
+            }
+            break;
         default:
            break;
         }
@@ -145,6 +156,9 @@ static void cpu_hotplug_wr(void *opaque, hwaddr addr, uint64_t data,
                     }
                     iter = iter + 1 < cpu_st->dev_count ? iter + 1 : 0;
                 } while (iter != cpu_st->selector);
+            } else if (cpu_st->command == CPHP_READ_CST_CMD) {
+                cdev = &cpu_st->devs[cpu_st->selector];
+                cdev->cst_idx = 0;
             }
         }
         break;
@@ -197,6 +211,33 @@ void cpu_hotplug_hw_init(MemoryRegion *as, Object *owner,
     id_list = mc->possible_cpu_arch_ids(machine);
     state->dev_count = id_list->len;
     state->devs = g_new0(typeof(*state->devs), state->dev_count);
+    if (state->cst_count) {
+        for (i = 0; i < state->dev_count; i++) {
+            int j;
+            state->devs[i].cst_count = state->cst_count;
+            state->devs[i].cst = g_new0(typeof(*state->devs->cst),
+                                        state->cst_count * 9);
+
+            /* HACK: makeup fake CST values somehow */
+            for (j = 0; j < state->cst_count; j++) {
+                int z = 9 * j;
+                /* AddressSpaceKeyword */
+                state->devs[i].cst[z + 0] = AML_AS_FFH;
+                /* RegisterBitWidth: Vendor: Intel */
+                state->devs[i].cst[z + 1] = 1;
+                /* RegisterBitOffset: Class: Native C State Instruction  */
+                state->devs[i].cst[z + 2] = 2;
+                /* RegisterAddress Lo: Arg0: mwait EAX hint */
+                state->devs[i].cst[z + 3] = 0;
+                /* RegisterAddress Hi: Reserved */
+                state->devs[i].cst[z + 4] = 0;
+                state->devs[i].cst[z + 5] = 0; /* AccessSize: Arg1 */
+                state->devs[i].cst[z + 6] = j + 1; /* The C State type C(j+1) */
+                state->devs[i].cst[z + 7] = 10 * (j + 1); /* CST: latency */
+                state->devs[i].cst[z + 8] = 100 * (j + 1); /* CST: power */
+            }
+        }
+    }
     for (i = 0; i < id_list->len; i++) {
         state->devs[i].cpu =  CPU(id_list->cpus[i].cpu);
         state->devs[i].arch_id = id_list->cpus[i].arch_id;
@@ -265,6 +306,37 @@ void acpi_cpu_unplug_cb(CPUHotplugState *cpu_st,
     cdev->cpu = NULL;
 }
 
+static const VMStateDescription vmstate_cstate_sts = {
+    .name = "CState",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_UINT32(cst_count, AcpiCpuStatus),
+        VMSTATE_UINT32(cst_idx, AcpiCpuStatus),
+        VMSTATE_VARRAY_UINT32(cst, AcpiCpuStatus, cst_count, 0,
+                              vmstate_info_uint32, uint32_t),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool vmstate_test_use_cst(void *opaque)
+{
+    CPUHotplugState *s = opaque;
+    return s->cst_count;
+}
+
+static const VMStateDescription vmstate_cstates = {
+    .name = "CPU hotplug state/CStates",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .needed = vmstate_test_use_cst,
+    .fields      = (VMStateField[]) {
+        VMSTATE_STRUCT_VARRAY_POINTER_UINT32(devs, CPUHotplugState, dev_count,
+                                             vmstate_cstate_sts, AcpiCpuStatus),
+        VMSTATE_END_OF_LIST()
+    },
+};
+
 static const VMStateDescription vmstate_cpuhp_sts = {
     .name = "CPU hotplug device state",
     .version_id = 1,
@@ -290,6 +362,10 @@ const VMStateDescription vmstate_cpu_hotplug = {
         VMSTATE_STRUCT_VARRAY_POINTER_UINT32(devs, CPUHotplugState, dev_count,
                                              vmstate_cpuhp_sts, AcpiCpuStatus),
         VMSTATE_END_OF_LIST()
+    },
+    .subsections = (const VMStateDescription * []) {
+       &vmstate_cstates,
+       NULL
     }
 };
 
@@ -301,6 +377,7 @@ const VMStateDescription vmstate_cpu_hotplug = {
 #define CPU_NOTIFY_METHOD "CTFY"
 #define CPU_EJECT_METHOD  "CEJ0"
 #define CPU_OST_METHOD    "COST"
+#define CPU_CST_METHOD    "CCST"
 
 #define CPU_ENABLED       "CPEN"
 #define CPU_SELECTOR      "CSEL"
@@ -501,6 +578,64 @@ void build_cpus_aml(Aml *table, MachineState *machine, CPUHotplugFeatures opts,
         }
         aml_append(cpus_dev, method);
 
+        if (opts.cst_count) {
+            Aml *crs, *loop;
+            Aml *pkg = aml_local(0);
+            Aml *cst = aml_local(1);
+            Aml *count = aml_local(2);
+            Aml *idx = aml_local(3);
+            Aml *cst_cmd = aml_int(CPHP_READ_CST_CMD);
+            Aml *uid = aml_arg(0);
+            Aml *nm = aml_name("CCRS");
+
+            method = aml_method(CPU_CST_METHOD, 1, AML_SERIALIZED);
+            /* Package to hold opts.cst_count CST entries */
+            aml_append(method, aml_store(aml_package(opts.cst_count + 1), pkg));
+            aml_append(method, aml_store(aml_package(4), cst)); /* CST entry */
+            aml_append(method, aml_store(aml_int(opts.cst_count),
+                                         aml_index(pkg, zero)));
+
+            /* create register template to fill in */
+            crs = aml_resource_template();
+            aml_append(crs, aml_register(AML_AS_FFH, 0, 0, 0, 0));
+            aml_append(method, aml_name_decl("CCRS", crs));
+            aml_append(method, aml_create_byte_field(nm, aml_int(3), "_ASI"));
+            aml_append(method, aml_create_byte_field(nm, aml_int(4), "_RBW"));
+            aml_append(method, aml_create_byte_field(nm, aml_int(5), "_RBO"));
+            aml_append(method, aml_create_dword_field(nm, aml_int(7), "LADR"));
+            aml_append(method, aml_create_dword_field(nm, aml_int(11), "HADR"));
+            aml_append(method, aml_create_byte_field(nm, aml_int(6), "_ASZ"));
+
+            aml_append(method, aml_acquire(ctrl_lock, 0xFFFF));
+            aml_append(method, aml_store(uid, cpu_selector));
+            aml_append(method, aml_store(cst_cmd, cpu_cmd));
+
+            aml_append(method, aml_store(one, idx));
+            aml_append(method, aml_store(cpu_data, count));
+
+            loop = aml_while(aml_lgreater_equal(count, idx));
+            /* fill in actual register values */
+            aml_append(loop, aml_store(cpu_data, aml_name("_ASI")));
+            aml_append(loop, aml_store(cpu_data, aml_name("_RBW")));
+            aml_append(loop, aml_store(cpu_data, aml_name("_RBO")));
+            aml_append(loop, aml_store(cpu_data, aml_name("LADR")));
+            aml_append(loop, aml_store(cpu_data, aml_name("HADR")));
+            aml_append(loop, aml_store(cpu_data, aml_name("_ASZ")));
+            /* pack CST entry */
+            aml_append(loop, aml_store(crs, aml_index(cst, zero)));
+            aml_append(loop, aml_store(cpu_data, aml_index(cst, one)));
+            aml_append(loop, aml_store(cpu_data, aml_index(cst, aml_int(2))));
+            aml_append(loop, aml_store(cpu_data, aml_index(cst, aml_int(3))));
+            /* store entry into _CST descriptors package */
+            aml_append(loop, aml_store(cst, aml_index(pkg, idx)));
+            aml_append(loop, aml_add(idx, one, idx));
+            aml_append(method, loop);
+            aml_append(method, aml_release(ctrl_lock));
+
+            aml_append(method, aml_return(pkg));
+            aml_append(cpus_dev, method);
+        }
+
         /* build Processor object for each processor */
         for (i = 0; i < arch_ids->len; i++) {
             Aml *dev;
@@ -519,6 +654,12 @@ void build_cpus_aml(Aml *table, MachineState *machine, CPUHotplugFeatures opts,
             method = aml_method("_STA", 0, AML_SERIALIZED);
             aml_append(method, aml_return(aml_call1(CPU_STS_METHOD, uid)));
             aml_append(dev, method);
+
+            if (opts.cst_count) {
+                method = aml_method("_CST", 0, AML_SERIALIZED);
+                aml_append(method, aml_return(aml_call1(CPU_CST_METHOD, uid)));
+                aml_append(dev, method);
+            }
 
             /* build _MAT object */
             assert(adevc && adevc->madt_cpu);
