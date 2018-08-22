@@ -73,6 +73,7 @@ typedef struct VFIOContainer {
     unsigned iommu_type;
     int error;
     bool initialized;
+    unsigned long pgsizes;
     /*
      * This assumes the host IOMMU can support only a single
      * contiguous IOVA window.  We may need to generalize that in
@@ -112,6 +113,7 @@ typedef struct VFIODevice {
     bool reset_works;
     bool needs_reset;
     bool no_mmap;
+    bool balloon_allowed;
     VFIODeviceOps *ops;
     unsigned int num_irqs;
     unsigned int num_regions;
@@ -131,6 +133,7 @@ typedef struct VFIOGroup {
     QLIST_HEAD(, VFIODevice) device_list;
     QLIST_ENTRY(VFIOGroup) next;
     QLIST_ENTRY(VFIOGroup) container_next;
+    bool balloon_allowed;
 } VFIOGroup;
 
 typedef struct VFIODMABuf {
