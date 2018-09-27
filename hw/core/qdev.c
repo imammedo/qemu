@@ -643,7 +643,7 @@ static void qdev_get_legacy_property(Object *obj, Visitor *v,
  * the string depends on the property type.  Legacy properties are only
  * needed for "info qtree".
  *
- * Do not use this is new code!  QOM Properties added through this interface
+ * Do not use this in new code!  QOM Properties added through this interface
  * will be given names in the "legacy" namespace.
  */
 static void qdev_property_add_legacy(DeviceState *dev, Property *prop,
@@ -1000,8 +1000,7 @@ static void device_finalize(Object *obj)
     if (dev->pending_deleted_event) {
         g_assert(dev->canonical_path);
 
-        qapi_event_send_device_deleted(!!dev->id, dev->id, dev->canonical_path,
-                                       &error_abort);
+        qapi_event_send_device_deleted(!!dev->id, dev->id, dev->canonical_path);
         g_free(dev->canonical_path);
         dev->canonical_path = NULL;
     }
