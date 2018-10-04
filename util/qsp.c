@@ -84,13 +84,6 @@ struct QSPEntry {
     uint64_t n_acqs;
     uint64_t ns;
     unsigned int n_objs; /* count of coalesced objs; only used for reporting */
-#ifndef CONFIG_ATOMIC64
-    /*
-     * If we cannot update the counts atomically, then use a seqlock.
-     * We don't need an associated lock because the updates are thread-local.
-     */
-    QemuSeqLock sequence;
-#endif
 };
 typedef struct QSPEntry QSPEntry;
 
@@ -345,46 +338,15 @@ static QSPEntry *qsp_entry_get(const void *obj, const char *file, int line,
 }
 
 /*
- * @from is in the global hash table; read it atomically if the host
- * supports it, otherwise use the seqlock.
- */
-static void qsp_entry_aggregate(QSPEntry *to, const QSPEntry *from)
-{
-#ifdef CONFIG_ATOMIC64
-    to->ns += atomic_read__nocheck(&from->ns);
-    to->n_acqs += atomic_read__nocheck(&from->n_acqs);
-#else
-    unsigned int version;
-    uint64_t ns, n_acqs;
-
-    do {
-        version = seqlock_read_begin(&from->sequence);
-        ns = atomic_read__nocheck(&from->ns);
-        n_acqs = atomic_read__nocheck(&from->n_acqs);
-    } while (seqlock_read_retry(&from->sequence, version));
-
-    to->ns += ns;
-    to->n_acqs += n_acqs;
-#endif
-}
-
-/*
  * @e is in the global hash table; it is only written to by the current thread,
  * so we write to it atomically (as in "write once") to prevent torn reads.
- * If the host doesn't support u64 atomics, use the seqlock.
  */
 static inline void do_qsp_entry_record(QSPEntry *e, int64_t delta, bool acq)
 {
-#ifndef CONFIG_ATOMIC64
-    seqlock_write_begin(&e->sequence);
-#endif
-    atomic_set__nocheck(&e->ns, e->ns + delta);
+    atomic_set_u64(&e->ns, e->ns + delta);
     if (acq) {
-        atomic_set__nocheck(&e->n_acqs, e->n_acqs + 1);
+        atomic_set_u64(&e->n_acqs, e->n_acqs + 1);
     }
-#ifndef CONFIG_ATOMIC64
-    seqlock_write_end(&e->sequence);
-#endif
 }
 
 static inline void qsp_entry_record(QSPEntry *e, int64_t delta)
@@ -533,7 +495,7 @@ static gint qsp_tree_cmp(gconstpointer ap, gconstpointer bp, gpointer up)
     }
 }
 
-static void qsp_sort(struct qht *ht, void *p, uint32_t h, void *userp)
+static void qsp_sort(void *p, uint32_t h, void *userp)
 {
     QSPEntry *e = p;
     GTree *tree = userp;
@@ -541,7 +503,7 @@ static void qsp_sort(struct qht *ht, void *p, uint32_t h, void *userp)
     g_tree_insert(tree, e, NULL);
 }
 
-static void qsp_aggregate(struct qht *global_ht, void *p, uint32_t h, void *up)
+static void qsp_aggregate(void *p, uint32_t h, void *up)
 {
     struct qht *ht = up;
     const QSPEntry *e = p;
@@ -550,10 +512,15 @@ static void qsp_aggregate(struct qht *global_ht, void *p, uint32_t h, void *up)
 
     hash = qsp_entry_no_thread_hash(e);
     agg = qsp_entry_find(ht, e, hash);
-    qsp_entry_aggregate(agg, e);
+    /*
+     * The entry is in the global hash table; read from it atomically (as in
+     * "read once").
+     */
+    agg->ns += atomic_read_u64(&e->ns);
+    agg->n_acqs += atomic_read_u64(&e->n_acqs);
 }
 
-static void qsp_iter_diff(struct qht *orig, void *p, uint32_t hash, void *htp)
+static void qsp_iter_diff(void *p, uint32_t hash, void *htp)
 {
     struct qht *ht = htp;
     QSPEntry *old = p;
@@ -583,8 +550,7 @@ static void qsp_diff(struct qht *orig, struct qht *new)
     qht_iter(orig, qsp_iter_diff, new);
 }
 
-static void
-qsp_iter_callsite_coalesce(struct qht *orig, void *p, uint32_t h, void *htp)
+static void qsp_iter_callsite_coalesce(void *p, uint32_t h, void *htp)
 {
     struct qht *ht = htp;
     QSPEntry *old = p;
@@ -603,7 +569,7 @@ qsp_iter_callsite_coalesce(struct qht *orig, void *p, uint32_t h, void *htp)
     e->n_acqs += old->n_acqs;
 }
 
-static void qsp_ht_delete(struct qht *ht, void *p, uint32_t h, void *htp)
+static void qsp_ht_delete(void *p, uint32_t h, void *htp)
 {
     g_free(p);
 }
