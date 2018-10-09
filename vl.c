@@ -2310,7 +2310,7 @@ static void monitor_parse(const char *optarg, const char *mode, bool pretty)
     } else {
         snprintf(label, sizeof(label), "compat_monitor%d",
                  monitor_device_index);
-        opts = qemu_chr_parse_compat(label, optarg);
+        opts = qemu_chr_parse_compat(label, optarg, true);
         if (!opts) {
             error_report("parse error: %s", optarg);
             exit(1);
@@ -2382,7 +2382,7 @@ static int serial_parse(const char *devname)
     snprintf(label, sizeof(label), "serial%d", index);
     serial_hds = g_renew(Chardev *, serial_hds, index + 1);
 
-    serial_hds[index] = qemu_chr_new(label, devname);
+    serial_hds[index] = qemu_chr_new_mux_mon(label, devname);
     if (!serial_hds[index]) {
         error_report("could not connect serial device"
                      " to character backend '%s'", devname);
@@ -2418,7 +2418,7 @@ static int parallel_parse(const char *devname)
         exit(1);
     }
     snprintf(label, sizeof(label), "parallel%d", index);
-    parallel_hds[index] = qemu_chr_new(label, devname);
+    parallel_hds[index] = qemu_chr_new_mux_mon(label, devname);
     if (!parallel_hds[index]) {
         error_report("could not connect parallel device"
                      " to character backend '%s'", devname);
@@ -2449,7 +2449,7 @@ static int virtcon_parse(const char *devname)
     qemu_opt_set(dev_opts, "driver", "virtconsole", &error_abort);
 
     snprintf(label, sizeof(label), "virtcon%d", index);
-    virtcon_hds[index] = qemu_chr_new(label, devname);
+    virtcon_hds[index] = qemu_chr_new_mux_mon(label, devname);
     if (!virtcon_hds[index]) {
         error_report("could not connect virtio console"
                      " to character backend '%s'", devname);
@@ -2465,7 +2465,7 @@ static int debugcon_parse(const char *devname)
 {
     QemuOpts *opts;
 
-    if (!qemu_chr_new("debugcon", devname)) {
+    if (!qemu_chr_new_mux_mon("debugcon", devname)) {
         exit(1);
     }
     opts = qemu_opts_create(qemu_find_opts("device"), "debugcon", 1, NULL);
@@ -2696,8 +2696,55 @@ static int machine_set_property(void *opaque,
  * cannot be created here, as it depends on the chardev
  * already existing.
  */
-static bool object_create_initial(const char *type)
+static bool object_create_initial(const char *type, QemuOpts *opts)
 {
+    ObjectClass *klass;
+
+    if (is_help_option(type)) {
+        GSList *l, *list;
+
+        printf("List of user creatable objects:\n");
+        list = object_class_get_list_sorted(TYPE_USER_CREATABLE, false);
+        for (l = list; l != NULL; l = l->next) {
+            ObjectClass *oc = OBJECT_CLASS(l->data);
+            printf("%s\n", object_class_get_name(oc));
+        }
+        g_slist_free(list);
+        exit(0);
+    }
+
+    klass = object_class_by_name(type);
+    if (klass && qemu_opt_has_help_opt(opts)) {
+        ObjectPropertyIterator iter;
+        ObjectProperty *prop;
+        GPtrArray *array = g_ptr_array_new();
+        int i;
+
+        object_class_property_iter_init(&iter, klass);
+        while ((prop = object_property_iter_next(&iter))) {
+            GString *str;
+
+            if (!prop->set) {
+                continue;
+            }
+
+            str = g_string_new(NULL);
+            g_string_append_printf(str, "%s.%s=%s", type,
+                                   prop->name, prop->type);
+            if (prop->description) {
+                g_string_append_printf(str, " - %s", prop->description);
+            }
+            g_ptr_array_add(array, g_string_free(str, false));
+        }
+        g_ptr_array_sort(array, (GCompareFunc)qemu_pstrcmp0);
+        for (i = 0; i < array->len; i++) {
+            printf("%s\n", (char *)array->pdata[i]);
+        }
+        g_ptr_array_set_free_func(array, g_free);
+        g_ptr_array_free(array, true);
+        exit(0);
+    }
+
     if (g_str_equal(type, "rng-egd") ||
         g_str_has_prefix(type, "pr-manager-")) {
         return false;
@@ -2744,9 +2791,9 @@ static bool object_create_initial(const char *type)
  * The remainder of object creation happens after the
  * creation of chardev, fsdev, net clients and device data types.
  */
-static bool object_create_delayed(const char *type)
+static bool object_create_delayed(const char *type, QemuOpts *opts)
 {
-    return !object_create_initial(type);
+    return !object_create_initial(type, opts);
 }
 
 
