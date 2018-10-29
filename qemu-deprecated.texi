@@ -19,13 +19,6 @@ deprecated.
 
 @section Build options
 
-@subsection GTK 2.x
-
-Previously QEMU has supported building against both GTK 2.x
-and 3.x series APIs. Support for the GTK 2.x builds will be
-discontinued, so maintainers should switch to using GTK 3.x,
-which is the default.
-
 @subsection SDL 1.2
 
 Previously QEMU has supported building against both SDL 1.2
@@ -92,6 +85,18 @@ for these file types is 'host_cdrom' or 'host_device' as appropriate.
 
 The @option{name} parameter of the @option{-net} option is a synonym
 for the @option{id} parameter, which should now be used instead.
+
+@subsection -smp (invalid topologies) (since 3.1)
+
+CPU topology properties should describe whole machine topology including
+possible CPUs.
+
+However, historically it was possible to start QEMU with an incorrect topology
+where @math{@var{n} <= @var{sockets} * @var{cores} * @var{threads} < @var{maxcpus}},
+which could lead to an incorrect topology enumeration by the guest.
+Support for invalid topologies will be removed, the user must ensure
+topologies described with -smp include all possible cpus, i.e.
+  @math{@var{sockets} * @var{cores} * @var{threads} = @var{maxcpus}}.
 
 @section QEMU Machine Protocol (QMP) commands
 

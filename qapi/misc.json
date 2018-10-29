@@ -2066,7 +2066,7 @@
 #
 # @plugged-memory: size of memory that can be hot-unplugged. This field
 #                  is omitted if target doesn't support memory hotplug
-#                  (i.e. CONFIG_MEM_HOTPLUG not defined on build time).
+#                  (i.e. CONFIG_MEM_DEVICE not defined at build time).
 #
 # Since: 2.11.0
 ##
@@ -3070,7 +3070,8 @@
 # Emitted when the guest changes the RTC time.
 #
 # @offset: offset between base RTC clock (as specified by -rtc base), and
-#          new RTC clock value
+#          new RTC clock value. Note that value will be different depending
+#          on clock chosen to drive RTC (specified by -rtc clock).
 #
 # Note: This event is rate-limited.
 #

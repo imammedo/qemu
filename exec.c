@@ -965,6 +965,7 @@ void cpu_exec_realizefn(CPUState *cpu, Error **errp)
         tcg_target_initialized = true;
         cc->tcg_initialize();
     }
+    tlb_init(cpu);
 
 #ifndef CONFIG_USER_ONLY
     if (qdev_get_vmsd(DEVICE(cpu)) == NULL) {
@@ -3906,11 +3907,6 @@ int qemu_target_page_bits_min(void)
 }
 #endif
 
-/*
- * A helper function for the _utterly broken_ virtio device model to find out if
- * it's running on a big endian machine. Don't do this at home kids!
- */
-bool target_words_bigendian(void);
 bool target_words_bigendian(void)
 {
 #if defined(TARGET_WORDS_BIGENDIAN)

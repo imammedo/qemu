@@ -76,10 +76,8 @@
 /* Migration XBZRLE default cache size */
 #define DEFAULT_MIGRATE_XBZRLE_CACHE_SIZE (64 * 1024 * 1024)
 
-/* The delay time (in ms) between two COLO checkpoints
- * Note: Please change this default value to 10000 when we support hybrid mode.
- */
-#define DEFAULT_MIGRATE_X_CHECKPOINT_DELAY 200
+/* The delay time (in ms) between two COLO checkpoints */
+#define DEFAULT_MIGRATE_X_CHECKPOINT_DELAY (200 * 100)
 #define DEFAULT_MIGRATE_MULTIFD_CHANNELS 2
 #define DEFAULT_MIGRATE_MULTIFD_PAGE_COUNT 16
 
@@ -298,6 +296,22 @@ int migrate_send_rp_req_pages(MigrationIncomingState *mis, const char *rbname,
     return migrate_send_rp_message(mis, msg_type, msglen, bufc);
 }
 
+static bool migration_colo_enabled;
+bool migration_incoming_colo_enabled(void)
+{
+    return migration_colo_enabled;
+}
+
+void migration_incoming_disable_colo(void)
+{
+    migration_colo_enabled = false;
+}
+
+void migration_incoming_enable_colo(void)
+{
+    migration_colo_enabled = true;
+}
+
 void qemu_start_incoming_migration(const char *uri, Error **errp)
 {
     const char *p;
@@ -388,6 +402,7 @@ static void process_incoming_migration_co(void *opaque)
     MigrationIncomingState *mis = migration_incoming_get_current();
     PostcopyState ps;
     int ret;
+    Error *local_err = NULL;
 
     assert(mis->from_src_file);
     mis->migration_incoming_co = qemu_coroutine_self();
@@ -419,7 +434,21 @@ static void process_incoming_migration_co(void *opaque)
     }
 
     /* we get COLO info, and know if we are in COLO mode */
-    if (!ret && migration_incoming_enable_colo()) {
+    if (!ret && migration_incoming_colo_enabled()) {
+        /* Make sure all file formats flush their mutable metadata */
+        bdrv_invalidate_cache_all(&local_err);
+        if (local_err) {
+            migrate_set_state(&mis->state, MIGRATION_STATUS_ACTIVE,
+                    MIGRATION_STATUS_FAILED);
+            error_report_err(local_err);
+            exit(EXIT_FAILURE);
+        }
+
+        if (colo_init_ram_cache() < 0) {
+            error_report("Init ram cache failed");
+            exit(EXIT_FAILURE);
+        }
+
         qemu_thread_create(&mis->colo_incoming_thread, "COLO incoming",
              colo_process_incoming_thread, mis, QEMU_THREAD_JOINABLE);
         mis->have_colo_incoming_thread = true;
@@ -427,6 +456,8 @@ static void process_incoming_migration_co(void *opaque)
 
         /* Wait checkpoint incoming thread exit before free resource */
         qemu_thread_join(&mis->colo_incoming_thread);
+        /* We hold the global iothread lock, so it is safe here */
+        colo_release_ram_cache();
     }
 
     if (ret < 0) {
@@ -1546,9 +1577,9 @@ static GSList *migration_blockers;
 int migrate_add_blocker(Error *reason, Error **errp)
 {
     if (migrate_get_current()->only_migratable) {
-        error_propagate(errp, error_copy(reason));
-        error_prepend(errp, "disallowing migration blocker "
-                          "(--only_migratable) for: ");
+        error_propagate_prepend(errp, error_copy(reason),
+                                "disallowing migration blocker "
+                                "(--only_migratable) for: ");
         return -EACCES;
     }
 
@@ -1557,9 +1588,9 @@ int migrate_add_blocker(Error *reason, Error **errp)
         return 0;
     }
 
-    error_propagate(errp, error_copy(reason));
-    error_prepend(errp, "disallowing migration blocker (migration in "
-                      "progress) for: ");
+    error_propagate_prepend(errp, error_copy(reason),
+                            "disallowing migration blocker "
+                            "(migration in progress) for: ");
     return -EBUSY;
 }
 
@@ -3015,6 +3046,11 @@ static void *migration_thread(void *opaque)
          * early.
          */
         qemu_savevm_send_postcopy_advise(s->to_dst_file);
+    }
+
+    if (migrate_colo_enabled()) {
+        /* Notify migration destination that we enable COLO */
+        qemu_savevm_send_colo_enable(s->to_dst_file);
     }
 
     qemu_savevm_state_setup(s->to_dst_file);

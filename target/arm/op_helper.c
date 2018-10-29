@@ -42,7 +42,7 @@ void raise_exception(CPUARMState *env, uint32_t excp,
          * (see DDI0478C.a D1.10.4)
          */
         target_el = 2;
-        if (syndrome >> ARM_EL_EC_SHIFT == EC_ADVSIMDFPACCESSTRAP) {
+        if (syn_get_ec(syndrome) == EC_ADVSIMDFPACCESSTRAP) {
             syndrome = syn_uncategorized();
         }
     }
@@ -1101,7 +1101,11 @@ void HELPER(exception_return)(CPUARMState *env)
                       "AArch64 EL%d PC 0x%" PRIx64 "\n",
                       cur_el, new_el, env->pc);
     }
-    aarch64_sve_change_el(env, cur_el, new_el);
+    /*
+     * Note that cur_el can never be 0.  If new_el is 0, then
+     * el0_a64 is return_to_aa64, else el0_a64 is ignored.
+     */
+    aarch64_sve_change_el(env, cur_el, new_el, return_to_aa64);
 
     qemu_mutex_lock_iothread();
     arm_call_el_change_hook(arm_env_get_cpu(env));

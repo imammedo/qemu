@@ -211,12 +211,12 @@ void qemu_tcg_configure(QemuOpts *opts, Error **errp)
                 error_setg(errp, "No MTTCG when icount is enabled");
             } else {
 #ifndef TARGET_SUPPORTS_MTTCG
-                error_report("Guest not yet converted to MTTCG - "
-                             "you may get unexpected results");
+                warn_report("Guest not yet converted to MTTCG - "
+                            "you may get unexpected results");
 #endif
                 if (!check_tcg_memory_orders_compatible()) {
-                    error_report("Guest expects a stronger memory ordering "
-                                 "than the host provides");
+                    warn_report("Guest expects a stronger memory ordering "
+                                "than the host provides");
                     error_printf("This may cause strange/hard to debug errors\n");
                 }
                 mttcg_enabled = true;
@@ -509,8 +509,8 @@ static void icount_warp_rt(void)
     seqlock_write_lock(&timers_state.vm_clock_seqlock,
                        &timers_state.vm_clock_lock);
     if (runstate_is_running()) {
-        int64_t clock = REPLAY_CLOCK(REPLAY_CLOCK_VIRTUAL_RT,
-                                     cpu_get_clock_locked());
+        int64_t clock = REPLAY_CLOCK_LOCKED(REPLAY_CLOCK_VIRTUAL_RT,
+                                            cpu_get_clock_locked());
         int64_t warp_delta;
 
         warp_delta = clock - timers_state.vm_clock_warp_start;
@@ -1425,7 +1425,8 @@ static int tcg_cpu_exec(CPUState *cpu)
     ret = cpu_exec(cpu);
     cpu_exec_end(cpu);
 #ifdef CONFIG_PROFILER
-    tcg_time += profile_getclock() - ti;
+    atomic_set(&tcg_ctx->prof.cpu_exec_time,
+               tcg_ctx->prof.cpu_exec_time + profile_getclock() - ti);
 #endif
     return ret;
 }

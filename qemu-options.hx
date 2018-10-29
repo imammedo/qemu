@@ -1823,7 +1823,7 @@ DEF("netdev", HAS_ARG, QEMU_OPTION_netdev,
     "         [,ipv6[=on|off]][,ipv6-net=addr[/int]][,ipv6-host=addr]\n"
     "         [,restrict=on|off][,hostname=host][,dhcpstart=addr]\n"
     "         [,dns=addr][,ipv6-dns=addr][,dnssearch=domain][,domainname=domain]\n"
-    "         [,tftp=dir][,bootfile=f][,hostfwd=rule][,guestfwd=rule]"
+    "         [,tftp=dir][,tftp-server-name=name][,bootfile=f][,hostfwd=rule][,guestfwd=rule]"
 #ifndef _WIN32
                                              "[,smb=dir[,smbserver=addr]]\n"
 #endif
@@ -2060,6 +2060,11 @@ server. The files in @var{dir} will be exposed as the root of a TFTP server.
 The TFTP client on the guest must be configured in binary mode (use the command
 @code{bin} of the Unix TFTP client).
 
+@item tftp-server-name=@var{name}
+In BOOTP reply, broadcast @var{name} as the "TFTP server name" (RFC2132 option
+66). This can be used to advise the guest to load boot files or configurations
+from a different server than the host address.
+
 @item bootfile=@var{file}
 When using the user mode network stack, broadcast @var{file} as the BOOTP
 filename. In conjunction with @option{tftp}, this can be used to network boot
@@ -2256,7 +2261,7 @@ qemu-system-i386 linux.img \
                  -netdev socket,id=n2,mcast=230.0.0.1:1234
 # launch yet another QEMU instance on same "bus"
 qemu-system-i386 linux.img \
-                 -device e1000,netdev=n3,macaddr=52:54:00:12:34:58 \
+                 -device e1000,netdev=n3,mac=52:54:00:12:34:58 \
                  -netdev socket,id=n3,mcast=230.0.0.1:1234
 @end example
 
@@ -3458,25 +3463,29 @@ HXCOMM Silently ignored for compatibility
 DEF("clock", HAS_ARG, QEMU_OPTION_clock, "", QEMU_ARCH_ALL)
 
 DEF("rtc", HAS_ARG, QEMU_OPTION_rtc, \
-    "-rtc [base=utc|localtime|date][,clock=host|rt|vm][,driftfix=none|slew]\n" \
+    "-rtc [base=utc|localtime|<datetime>][,clock=host|rt|vm][,driftfix=none|slew]\n" \
     "                set the RTC base and clock, enable drift fix for clock ticks (x86 only)\n",
     QEMU_ARCH_ALL)
 
 STEXI
 
-@item -rtc [base=utc|localtime|@var{date}][,clock=host|vm][,driftfix=none|slew]
+@item -rtc [base=utc|localtime|@var{datetime}][,clock=host|rt|vm][,driftfix=none|slew]
 @findex -rtc
 Specify @option{base} as @code{utc} or @code{localtime} to let the RTC start at the current
 UTC or local time, respectively. @code{localtime} is required for correct date in
-MS-DOS or Windows. To start at a specific point in time, provide @var{date} in the
+MS-DOS or Windows. To start at a specific point in time, provide @var{datetime} in the
 format @code{2006-06-17T16:01:21} or @code{2006-06-17}. The default base is UTC.
 
 By default the RTC is driven by the host system time. This allows using of the
 RTC as accurate reference clock inside the guest, specifically if the host
 time is smoothly following an accurate external reference clock, e.g. via NTP.
 If you want to isolate the guest time from the host, you can set @option{clock}
-to @code{rt} instead.  To even prevent it from progressing during suspension,
-you can set it to @code{vm}.
+to @code{rt} instead, which provides a host monotonic clock if host support it.
+To even prevent the RTC from progressing during suspension, you can set @option{clock}
+to @code{vm} (virtual clock). @samp{clock=vm} is recommended especially in
+icount mode in order to preserve determinism; however, note that in icount mode
+the speed of the virtual clock is variable and can in general differ from the
+host clock.
 
 Enable @option{driftfix} (i386 targets only) if you experience time drift problems,
 specifically with Windows' ACPI HAL. This option will try to figure out how

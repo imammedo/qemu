@@ -5123,14 +5123,15 @@ static void x86_cpu_realizefn(DeviceState *dev, Error **errp)
      * NOTE: the following code has to follow qemu_init_vcpu(). Otherwise
      * cs->nr_threads hasn't be populated yet and the checking is incorrect.
      */
-     if (IS_AMD_CPU(env) &&
-         !(env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_TOPOEXT) &&
-         cs->nr_threads > 1 && !ht_warned) {
-            error_report("This family of AMD CPU doesn't support "
-                         "hyperthreading(%d). Please configure -smp "
-                         "options properly or try enabling topoext feature.",
-                         cs->nr_threads);
-        ht_warned = true;
+    if (IS_AMD_CPU(env) &&
+        !(env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_TOPOEXT) &&
+        cs->nr_threads > 1 && !ht_warned) {
+            warn_report("This family of AMD CPU doesn't support "
+                        "hyperthreading(%d)",
+                        cs->nr_threads);
+            error_printf("Please configure -smp options properly"
+                         " or try enabling topoext feature.\n");
+            ht_warned = true;
     }
 
     x86_cpu_apic_realize(cpu, &local_err);
@@ -5564,6 +5565,7 @@ static Property x86_cpu_properties[] = {
     DEFINE_PROP_BOOL("hv-frequencies", X86CPU, hyperv_frequencies, false),
     DEFINE_PROP_BOOL("hv-reenlightenment", X86CPU, hyperv_reenlightenment, false),
     DEFINE_PROP_BOOL("hv-tlbflush", X86CPU, hyperv_tlbflush, false),
+    DEFINE_PROP_BOOL("hv-ipi", X86CPU, hyperv_ipi, false),
     DEFINE_PROP_BOOL("check", X86CPU, check_cpuid, true),
     DEFINE_PROP_BOOL("enforce", X86CPU, enforce_cpuid, false),
     DEFINE_PROP_BOOL("kvm", X86CPU, expose_kvm, true),
@@ -5606,6 +5608,8 @@ static Property x86_cpu_properties[] = {
      * to the specific Windows version being used."
      */
     DEFINE_PROP_INT32("x-hv-max-vps", X86CPU, hv_max_vps, -1),
+    DEFINE_PROP_BOOL("x-hv-synic-kvm-only", X86CPU, hyperv_synic_kvm_only,
+                     false),
     DEFINE_PROP_END_OF_LIST()
 };
 

@@ -1169,7 +1169,6 @@ int virtio_set_status(VirtIODevice *vdev, uint8_t val)
     return 0;
 }
 
-bool target_words_bigendian(void);
 static enum virtio_device_endian virtio_default_endian(void)
 {
     if (target_words_bigendian()) {
@@ -1612,6 +1611,8 @@ void virtio_del_queue(VirtIODevice *vdev, int n)
 
     vdev->vq[n].vring.num = 0;
     vdev->vq[n].vring.num_default = 0;
+    vdev->vq[n].handle_output = NULL;
+    vdev->vq[n].handle_aio_output = NULL;
 }
 
 static void virtio_set_isr(VirtIODevice *vdev, int value)

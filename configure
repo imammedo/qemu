@@ -428,7 +428,7 @@ usb_redir=""
 opengl=""
 opengl_dmabuf="no"
 cpuid_h="no"
-avx2_opt="no"
+avx2_opt=""
 zlib="yes"
 capstone=""
 lzo=""
@@ -454,16 +454,12 @@ glusterfs_discard="no"
 glusterfs_fallocate="no"
 glusterfs_zerofill="no"
 gtk=""
-gtkabi=""
 gtk_gl="no"
 tls_priority="NORMAL"
 gnutls=""
-gnutls_rnd=""
 nettle=""
-nettle_kdf="no"
 gcrypt=""
 gcrypt_hmac="no"
-gcrypt_kdf="no"
 vte=""
 virglrenderer=""
 tpm="yes"
@@ -1333,6 +1329,10 @@ for opt do
   ;;
   --disable-glusterfs) glusterfs="no"
   ;;
+  --disable-avx2) avx2_opt="no"
+  ;;
+  --enable-avx2) avx2_opt="yes"
+  ;;
   --enable-glusterfs) glusterfs="yes"
   ;;
   --disable-virtio-blk-data-plane|--enable-virtio-blk-data-plane)
@@ -1369,8 +1369,6 @@ for opt do
   --enable-pvrdma) pvrdma="yes"
   ;;
   --disable-pvrdma) pvrdma="no"
-  ;;
-  --with-gtkabi=*) gtkabi="$optarg"
   ;;
   --disable-vte) vte="no"
   ;;
@@ -1659,7 +1657,6 @@ disabled with --disable-FEATURE, default is enabled if available:
   sdl             SDL UI
   --with-sdlabi     select preferred SDL ABI 1.2 or 2.0
   gtk             gtk UI
-  --with-gtkabi     select preferred GTK ABI 2.0 or 3.0
   vte             vte support for the gtk UI
   curses          curses UI
   vnc             VNC UI support
@@ -1710,6 +1707,7 @@ disabled with --disable-FEATURE, default is enabled if available:
   libxml2         for Parallels image format
   tcmalloc        tcmalloc support
   jemalloc        jemalloc support
+  avx2            AVX2 optimization support
   replication     replication support
   vhost-vsock     virtio sockets device support
   opengl          opengl support
@@ -2646,24 +2644,9 @@ fi
 # GTK probe
 
 if test "$gtk" != "no"; then
-    if test "$gtkabi" = ""; then
-        # The GTK ABI was not specified explicitly, so try whether 3.0 is available.
-        # Use 2.0 as a fallback if that is available.
-        if $pkg_config --exists "gtk+-3.0 >= 3.0.0"; then
-            gtkabi=3.0
-        elif $pkg_config --exists "gtk+-2.0 >= 2.18.0"; then
-            gtkabi=2.0
-        else
-            gtkabi=3.0
-        fi
-    fi
-    gtkpackage="gtk+-$gtkabi"
-    gtkx11package="gtk+-x11-$gtkabi"
-    if test "$gtkabi" = "3.0" ; then
-      gtkversion="3.0.0"
-    else
-      gtkversion="2.18.0"
-    fi
+    gtkpackage="gtk+-3.0"
+    gtkx11package="gtk+-x11-3.0"
+    gtkversion="3.14.0"
     if $pkg_config --exists "$gtkpackage >= $gtkversion"; then
         gtk_cflags=$($pkg_config --cflags $gtkpackage)
         gtk_libs=$($pkg_config --libs $gtkpackage)
@@ -2685,79 +2668,28 @@ fi
 ##########################################
 # GNUTLS probe
 
-gnutls_works() {
-    # Unfortunately some distros have bad pkg-config information for gnutls
-    # such that it claims to exist but you get a compiler error if you try
-    # to use the options returned by --libs. Specifically, Ubuntu for --static
-    # builds doesn't work:
-    # https://bugs.launchpad.net/ubuntu/+source/gnutls26/+bug/1478035
-    #
-    # So sanity check the cflags/libs before assuming gnutls can be used.
-    if ! $pkg_config --exists "gnutls"; then
-        return 1
-    fi
-
-    write_c_skeleton
-    compile_prog "$($pkg_config --cflags gnutls)" "$($pkg_config --libs gnutls)"
-}
-
-gnutls_gcrypt=no
-gnutls_nettle=no
 if test "$gnutls" != "no"; then
-    if gnutls_works; then
+    if $pkg_config --exists "gnutls >= 3.1.18"; then
         gnutls_cflags=$($pkg_config --cflags gnutls)
         gnutls_libs=$($pkg_config --libs gnutls)
         libs_softmmu="$gnutls_libs $libs_softmmu"
         libs_tools="$gnutls_libs $libs_tools"
 	QEMU_CFLAGS="$QEMU_CFLAGS $gnutls_cflags"
         gnutls="yes"
-
-	# gnutls_rnd requires >= 2.11.0
-	if $pkg_config --exists "gnutls >= 2.11.0"; then
-	    gnutls_rnd="yes"
-	else
-	    gnutls_rnd="no"
-	fi
-
-	if $pkg_config --exists 'gnutls >= 3.0'; then
-	    gnutls_gcrypt=no
-	    gnutls_nettle=yes
-	elif $pkg_config --exists 'gnutls >= 2.12'; then
-	    case $($pkg_config --libs --static gnutls) in
-		*gcrypt*)
-		    gnutls_gcrypt=yes
-		    gnutls_nettle=no
-		    ;;
-		*nettle*)
-		    gnutls_gcrypt=no
-		    gnutls_nettle=yes
-		    ;;
-		*)
-		    gnutls_gcrypt=yes
-		    gnutls_nettle=no
-		    ;;
-	    esac
-	else
-	    gnutls_gcrypt=yes
-	    gnutls_nettle=no
-	fi
     elif test "$gnutls" = "yes"; then
-	feature_not_found "gnutls" "Install gnutls devel"
+	feature_not_found "gnutls" "Install gnutls devel >= 3.1.18"
     else
         gnutls="no"
-        gnutls_rnd="no"
     fi
-else
-    gnutls_rnd="no"
 fi
 
 
 # If user didn't give a --disable/enable-gcrypt flag,
 # then mark as disabled if user requested nettle
-# explicitly, or if gnutls links to nettle
+# explicitly
 if test -z "$gcrypt"
 then
-    if test "$nettle" = "yes" || test "$gnutls_nettle" = "yes"
+    if test "$nettle" = "yes"
     then
         gcrypt="no"
     fi
@@ -2765,16 +2697,16 @@ fi
 
 # If user didn't give a --disable/enable-nettle flag,
 # then mark as disabled if user requested gcrypt
-# explicitly, or if gnutls links to gcrypt
+# explicitly
 if test -z "$nettle"
 then
-    if test "$gcrypt" = "yes" || test "$gnutls_gcrypt" = "yes"
+    if test "$gcrypt" = "yes"
     then
         nettle="no"
     fi
 fi
 
-has_libgcrypt_config() {
+has_libgcrypt() {
     if ! has "libgcrypt-config"
     then
 	return 1
@@ -2789,11 +2721,42 @@ has_libgcrypt_config() {
 	fi
     fi
 
+    maj=`libgcrypt-config --version | awk -F . '{print $1}'`
+    min=`libgcrypt-config --version | awk -F . '{print $2}'`
+
+    if test $maj != 1 || test $min -lt 5
+    then
+       return 1
+    fi
+
     return 0
 }
 
+
+if test "$nettle" != "no"; then
+    if $pkg_config --exists "nettle >= 2.7.1"; then
+        nettle_cflags=$($pkg_config --cflags nettle)
+        nettle_libs=$($pkg_config --libs nettle)
+        nettle_version=$($pkg_config --modversion nettle)
+        libs_softmmu="$nettle_libs $libs_softmmu"
+        libs_tools="$nettle_libs $libs_tools"
+        QEMU_CFLAGS="$QEMU_CFLAGS $nettle_cflags"
+        nettle="yes"
+
+        if test -z "$gcrypt"; then
+           gcrypt="no"
+        fi
+    else
+        if test "$nettle" = "yes"; then
+            feature_not_found "nettle" "Install nettle devel >= 2.7.1"
+        else
+            nettle="no"
+        fi
+    fi
+fi
+
 if test "$gcrypt" != "no"; then
-    if has_libgcrypt_config; then
+    if has_libgcrypt; then
         gcrypt_cflags=$(libgcrypt-config --cflags)
         gcrypt_libs=$(libgcrypt-config --libs)
         # Debian has remove -lgpg-error from libgcrypt-config
@@ -2807,22 +2770,6 @@ if test "$gcrypt" != "no"; then
         libs_tools="$gcrypt_libs $libs_tools"
         QEMU_CFLAGS="$QEMU_CFLAGS $gcrypt_cflags"
         gcrypt="yes"
-        if test -z "$nettle"; then
-           nettle="no"
-        fi
-
-        cat > $TMPC << EOF
-#include <gcrypt.h>
-int main(void) {
-  gcry_kdf_derive(NULL, 0, GCRY_KDF_PBKDF2,
-                  GCRY_MD_SHA256,
-                  NULL, 0, 0, 0, NULL);
- return 0;
-}
-EOF
-        if compile_prog "$gcrypt_cflags" "$gcrypt_libs" ; then
-            gcrypt_kdf=yes
-        fi
 
         cat > $TMPC << EOF
 #include <gcrypt.h>
@@ -2838,43 +2785,13 @@ EOF
         fi
     else
         if test "$gcrypt" = "yes"; then
-            feature_not_found "gcrypt" "Install gcrypt devel"
+            feature_not_found "gcrypt" "Install gcrypt devel >= 1.5.0"
         else
             gcrypt="no"
         fi
     fi
 fi
 
-
-if test "$nettle" != "no"; then
-    if $pkg_config --exists "nettle"; then
-        nettle_cflags=$($pkg_config --cflags nettle)
-        nettle_libs=$($pkg_config --libs nettle)
-        nettle_version=$($pkg_config --modversion nettle)
-        libs_softmmu="$nettle_libs $libs_softmmu"
-        libs_tools="$nettle_libs $libs_tools"
-        QEMU_CFLAGS="$QEMU_CFLAGS $nettle_cflags"
-        nettle="yes"
-
-        cat > $TMPC << EOF
-#include <stddef.h>
-#include <nettle/pbkdf2.h>
-int main(void) {
-     pbkdf2_hmac_sha256(8, NULL, 1000, 8, NULL, 8, NULL);
-     return 0;
-}
-EOF
-        if compile_prog "$nettle_cflags" "$nettle_libs" ; then
-            nettle_kdf=yes
-        fi
-    else
-        if test "$nettle" = "yes"; then
-            feature_not_found "nettle" "Install nettle devel"
-        else
-            nettle="no"
-        fi
-    fi
-fi
 
 if test "$gcrypt" = "yes" && test "$nettle" = "yes"
 then
@@ -2907,16 +2824,11 @@ fi
 # VTE probe
 
 if test "$vte" != "no"; then
-    if test "$gtkabi" = "3.0"; then
-      vteminversion="0.32.0"
-      if $pkg_config --exists "vte-2.91"; then
-        vtepackage="vte-2.91"
-      else
-        vtepackage="vte-2.90"
-      fi
+    vteminversion="0.32.0"
+    if $pkg_config --exists "vte-2.91"; then
+      vtepackage="vte-2.91"
     else
-      vtepackage="vte"
-      vteminversion="0.24.0"
+      vtepackage="vte-2.90"
     fi
     if $pkg_config --exists "$vtepackage >= $vteminversion"; then
         vte_cflags=$($pkg_config --cflags $vtepackage)
@@ -2924,11 +2836,7 @@ if test "$vte" != "no"; then
         vteversion=$($pkg_config --modversion $vtepackage)
         vte="yes"
     elif test "$vte" = "yes"; then
-        if test "$gtkabi" = "3.0"; then
-            feature_not_found "vte" "Install libvte-2.90/2.91 devel"
-        else
-            feature_not_found "vte" "Install libvte devel"
-        fi
+        feature_not_found "vte" "Install libvte-2.90/2.91 devel"
     else
         vte="no"
     fi
@@ -3557,12 +3465,6 @@ if ! compile_prog "$CFLAGS" "$LIBS" ; then
                "You probably need to set PKG_CONFIG_LIBDIR"\
 	       "to point to the right pkg-config files for your"\
 	       "build target"
-fi
-
-# g_test_trap_subprocess added in 2.38. Used by some tests.
-glib_subprocess=yes
-if ! $pkg_config --atleast-version=2.38 glib-2.0; then
-    glib_subprocess=no
 fi
 
 # Silence clang 3.5.0 warnings about glib attribute __alloc_size__ usage
@@ -4236,7 +4138,14 @@ if compile_prog "" "" ; then
   memfd=yes
 fi
 
-
+# check for usbfs
+have_usbfs=no
+if test "$linux_user" = "yes"; then
+  if check_include linux/usbdevice_fs.h; then
+    have_usbfs=yes
+  fi
+  have_usbfs=yes
+fi
 
 # check for fallocate
 fallocate=no
@@ -5128,7 +5037,7 @@ fi
 # There is no point enabling this if cpuid.h is not usable,
 # since we won't be able to select the new routines.
 
-if test $cpuid_h = yes; then
+if test "$cpuid_h" = "yes" -a "$avx2_opt" != "no"; then
   cat > $TMPC << EOF
 #pragma GCC push_options
 #pragma GCC target("avx2")
@@ -5142,6 +5051,8 @@ int main(int argc, char *argv[]) { return bar(argv[0]); }
 EOF
   if compile_object "" ; then
     avx2_opt="yes"
+  else
+    avx2_opt="no"
   fi
 fi
 
@@ -5185,6 +5096,21 @@ int main(void)
 EOF
   if compile_prog "" "" ; then
     atomic128=yes
+  fi
+fi
+
+cmpxchg128=no
+if test "$int128" = yes -a "$atomic128" = no; then
+  cat > $TMPC << EOF
+int main(void)
+{
+  unsigned __int128 x = 0, y = 0;
+  __sync_val_compare_and_swap_16(&x, y, x);
+  return 0;
+}
+EOF
+  if compile_prog "" "" ; then
+    cmpxchg128=yes
   fi
 fi
 
@@ -5995,11 +5921,8 @@ echo "GTK GL support    $gtk_gl"
 echo "VTE support       $vte $(echo_version $vte $vteversion)"
 echo "TLS priority      $tls_priority"
 echo "GNUTLS support    $gnutls"
-echo "GNUTLS rnd        $gnutls_rnd"
 echo "libgcrypt         $gcrypt"
-echo "libgcrypt kdf     $gcrypt_kdf"
 echo "nettle            $nettle $(echo_version $nettle $nettle_version)"
-echo "nettle kdf        $nettle_kdf"
 echo "libtasn1          $tasn1"
 echo "curses support    $curses"
 echo "virgl support     $virglrenderer $(echo_version $virglrenderer $virgl_version)"
@@ -6107,12 +6030,6 @@ echo "libpmem support   $libpmem"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
-fi
-
-if test "$gtkabi" = "2.0"; then
-    echo
-    echo "WARNING: Use of GTK 2.0 is deprecated and will be removed in"
-    echo "WARNING: future releases. Please switch to using GTK 3.0"
 fi
 
 if test "$sdlabi" = "1.2"; then
@@ -6350,6 +6267,9 @@ fi
 if test "$memfd" = "yes" ; then
   echo "CONFIG_MEMFD=y" >> $config_host_mak
 fi
+if test "$have_usbfs" = "yes" ; then
+  echo "CONFIG_USBFS=y" >> $config_host_mak
+fi
 if test "$fallocate" = "yes" ; then
   echo "CONFIG_FALLOCATE=y" >> $config_host_mak
 fi
@@ -6431,7 +6351,6 @@ if test "$bluez" = "yes" ; then
 fi
 if test "$gtk" = "yes" ; then
   echo "CONFIG_GTK=m" >> $config_host_mak
-  echo "CONFIG_GTKABI=$gtkabi" >> $config_host_mak
   echo "GTK_CFLAGS=$gtk_cflags" >> $config_host_mak
   echo "GTK_LIBS=$gtk_libs" >> $config_host_mak
   if test "$gtk_gl" = "yes" ; then
@@ -6442,24 +6361,15 @@ echo "CONFIG_TLS_PRIORITY=\"$tls_priority\"" >> $config_host_mak
 if test "$gnutls" = "yes" ; then
   echo "CONFIG_GNUTLS=y" >> $config_host_mak
 fi
-if test "$gnutls_rnd" = "yes" ; then
-  echo "CONFIG_GNUTLS_RND=y" >> $config_host_mak
-fi
 if test "$gcrypt" = "yes" ; then
   echo "CONFIG_GCRYPT=y" >> $config_host_mak
   if test "$gcrypt_hmac" = "yes" ; then
     echo "CONFIG_GCRYPT_HMAC=y" >> $config_host_mak
   fi
-  if test "$gcrypt_kdf" = "yes" ; then
-    echo "CONFIG_GCRYPT_KDF=y" >> $config_host_mak
-  fi
 fi
 if test "$nettle" = "yes" ; then
   echo "CONFIG_NETTLE=y" >> $config_host_mak
   echo "CONFIG_NETTLE_VERSION_MAJOR=${nettle_version%%.*}" >> $config_host_mak
-  if test "$nettle_kdf" = "yes" ; then
-    echo "CONFIG_NETTLE_KDF=y" >> $config_host_mak
-  fi
 fi
 if test "$tasn1" = "yes" ; then
   echo "CONFIG_TASN1=y" >> $config_host_mak
@@ -6702,6 +6612,10 @@ fi
 
 if test "$atomic128" = "yes" ; then
   echo "CONFIG_ATOMIC128=y" >> $config_host_mak
+fi
+
+if test "$cmpxchg128" = "yes" ; then
+  echo "CONFIG_CMPXCHG128=y" >> $config_host_mak
 fi
 
 if test "$atomic64" = "yes" ; then
@@ -7350,6 +7264,9 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
   ;;
   mips*)
     disas_config "MIPS"
+    if test -n "${cxx}"; then
+      disas_config "NANOMIPS"
+    fi
   ;;
   moxie*)
     disas_config "MOXIE"

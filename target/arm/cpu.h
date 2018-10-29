@@ -531,6 +531,13 @@ typedef struct CPUARMState {
          */
     } exception;
 
+    /* Information associated with an SError */
+    struct {
+        uint8_t pending;
+        uint8_t has_esr;
+        uint64_t esr;
+    } serror;
+
     /* Thumb-2 EE state.  */
     uint32_t teecr;
     uint32_t teehbr;
@@ -669,6 +676,8 @@ typedef enum ARMPSCIState {
     PSCI_ON_PENDING = 2
 } ARMPSCIState;
 
+typedef struct ARMISARegisters ARMISARegisters;
+
 /**
  * ARMCPU:
  * @env: #CPUARMState
@@ -788,13 +797,28 @@ struct ARMCPU {
      * ARMv7AR ARM Architecture Reference Manual. A reset_ prefix
      * is used for reset values of non-constant registers; no reset_
      * prefix means a constant register.
+     * Some of these registers are split out into a substructure that
+     * is shared with the translators to control the ISA.
      */
+    struct ARMISARegisters {
+        uint32_t id_isar0;
+        uint32_t id_isar1;
+        uint32_t id_isar2;
+        uint32_t id_isar3;
+        uint32_t id_isar4;
+        uint32_t id_isar5;
+        uint32_t id_isar6;
+        uint32_t mvfr0;
+        uint32_t mvfr1;
+        uint32_t mvfr2;
+        uint64_t id_aa64isar0;
+        uint64_t id_aa64isar1;
+        uint64_t id_aa64pfr0;
+        uint64_t id_aa64pfr1;
+    } isar;
     uint32_t midr;
     uint32_t revidr;
     uint32_t reset_fpsid;
-    uint32_t mvfr0;
-    uint32_t mvfr1;
-    uint32_t mvfr2;
     uint32_t ctr;
     uint32_t reset_sctlr;
     uint32_t id_pfr0;
@@ -808,21 +832,10 @@ struct ARMCPU {
     uint32_t id_mmfr2;
     uint32_t id_mmfr3;
     uint32_t id_mmfr4;
-    uint32_t id_isar0;
-    uint32_t id_isar1;
-    uint32_t id_isar2;
-    uint32_t id_isar3;
-    uint32_t id_isar4;
-    uint32_t id_isar5;
-    uint32_t id_isar6;
-    uint64_t id_aa64pfr0;
-    uint64_t id_aa64pfr1;
     uint64_t id_aa64dfr0;
     uint64_t id_aa64dfr1;
     uint64_t id_aa64afr0;
     uint64_t id_aa64afr1;
-    uint64_t id_aa64isar0;
-    uint64_t id_aa64isar1;
     uint64_t id_aa64mmfr0;
     uint64_t id_aa64mmfr1;
     uint32_t dbgdidr;
@@ -911,10 +924,13 @@ int arm_cpu_write_elf32_note(WriteCoreDumpFunction f, CPUState *cs,
 int aarch64_cpu_gdb_read_register(CPUState *cpu, uint8_t *buf, int reg);
 int aarch64_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
 void aarch64_sve_narrow_vq(CPUARMState *env, unsigned vq);
-void aarch64_sve_change_el(CPUARMState *env, int old_el, int new_el);
+void aarch64_sve_change_el(CPUARMState *env, int old_el,
+                           int new_el, bool el0_a64);
 #else
 static inline void aarch64_sve_narrow_vq(CPUARMState *env, unsigned vq) { }
-static inline void aarch64_sve_change_el(CPUARMState *env, int o, int n) { }
+static inline void aarch64_sve_change_el(CPUARMState *env, int o,
+                                         int n, bool a)
+{ }
 #endif
 
 target_ulong do_arm_semihosting(CPUARMState *env);
@@ -1440,6 +1456,104 @@ FIELD(V7M_CSSELR, LEVEL, 1, 3)
  */
 FIELD(V7M_CSSELR, INDEX, 0, 4)
 
+/*
+ * System register ID fields.
+ */
+FIELD(ID_ISAR0, SWAP, 0, 4)
+FIELD(ID_ISAR0, BITCOUNT, 4, 4)
+FIELD(ID_ISAR0, BITFIELD, 8, 4)
+FIELD(ID_ISAR0, CMPBRANCH, 12, 4)
+FIELD(ID_ISAR0, COPROC, 16, 4)
+FIELD(ID_ISAR0, DEBUG, 20, 4)
+FIELD(ID_ISAR0, DIVIDE, 24, 4)
+
+FIELD(ID_ISAR1, ENDIAN, 0, 4)
+FIELD(ID_ISAR1, EXCEPT, 4, 4)
+FIELD(ID_ISAR1, EXCEPT_AR, 8, 4)
+FIELD(ID_ISAR1, EXTEND, 12, 4)
+FIELD(ID_ISAR1, IFTHEN, 16, 4)
+FIELD(ID_ISAR1, IMMEDIATE, 20, 4)
+FIELD(ID_ISAR1, INTERWORK, 24, 4)
+FIELD(ID_ISAR1, JAZELLE, 28, 4)
+
+FIELD(ID_ISAR2, LOADSTORE, 0, 4)
+FIELD(ID_ISAR2, MEMHINT, 4, 4)
+FIELD(ID_ISAR2, MULTIACCESSINT, 8, 4)
+FIELD(ID_ISAR2, MULT, 12, 4)
+FIELD(ID_ISAR2, MULTS, 16, 4)
+FIELD(ID_ISAR2, MULTU, 20, 4)
+FIELD(ID_ISAR2, PSR_AR, 24, 4)
+FIELD(ID_ISAR2, REVERSAL, 28, 4)
+
+FIELD(ID_ISAR3, SATURATE, 0, 4)
+FIELD(ID_ISAR3, SIMD, 4, 4)
+FIELD(ID_ISAR3, SVC, 8, 4)
+FIELD(ID_ISAR3, SYNCHPRIM, 12, 4)
+FIELD(ID_ISAR3, TABBRANCH, 16, 4)
+FIELD(ID_ISAR3, T32COPY, 20, 4)
+FIELD(ID_ISAR3, TRUENOP, 24, 4)
+FIELD(ID_ISAR3, T32EE, 28, 4)
+
+FIELD(ID_ISAR4, UNPRIV, 0, 4)
+FIELD(ID_ISAR4, WITHSHIFTS, 4, 4)
+FIELD(ID_ISAR4, WRITEBACK, 8, 4)
+FIELD(ID_ISAR4, SMC, 12, 4)
+FIELD(ID_ISAR4, BARRIER, 16, 4)
+FIELD(ID_ISAR4, SYNCHPRIM_FRAC, 20, 4)
+FIELD(ID_ISAR4, PSR_M, 24, 4)
+FIELD(ID_ISAR4, SWP_FRAC, 28, 4)
+
+FIELD(ID_ISAR5, SEVL, 0, 4)
+FIELD(ID_ISAR5, AES, 4, 4)
+FIELD(ID_ISAR5, SHA1, 8, 4)
+FIELD(ID_ISAR5, SHA2, 12, 4)
+FIELD(ID_ISAR5, CRC32, 16, 4)
+FIELD(ID_ISAR5, RDM, 24, 4)
+FIELD(ID_ISAR5, VCMA, 28, 4)
+
+FIELD(ID_ISAR6, JSCVT, 0, 4)
+FIELD(ID_ISAR6, DP, 4, 4)
+FIELD(ID_ISAR6, FHM, 8, 4)
+FIELD(ID_ISAR6, SB, 12, 4)
+FIELD(ID_ISAR6, SPECRES, 16, 4)
+
+FIELD(ID_AA64ISAR0, AES, 4, 4)
+FIELD(ID_AA64ISAR0, SHA1, 8, 4)
+FIELD(ID_AA64ISAR0, SHA2, 12, 4)
+FIELD(ID_AA64ISAR0, CRC32, 16, 4)
+FIELD(ID_AA64ISAR0, ATOMIC, 20, 4)
+FIELD(ID_AA64ISAR0, RDM, 28, 4)
+FIELD(ID_AA64ISAR0, SHA3, 32, 4)
+FIELD(ID_AA64ISAR0, SM3, 36, 4)
+FIELD(ID_AA64ISAR0, SM4, 40, 4)
+FIELD(ID_AA64ISAR0, DP, 44, 4)
+FIELD(ID_AA64ISAR0, FHM, 48, 4)
+FIELD(ID_AA64ISAR0, TS, 52, 4)
+FIELD(ID_AA64ISAR0, TLB, 56, 4)
+FIELD(ID_AA64ISAR0, RNDR, 60, 4)
+
+FIELD(ID_AA64ISAR1, DPB, 0, 4)
+FIELD(ID_AA64ISAR1, APA, 4, 4)
+FIELD(ID_AA64ISAR1, API, 8, 4)
+FIELD(ID_AA64ISAR1, JSCVT, 12, 4)
+FIELD(ID_AA64ISAR1, FCMA, 16, 4)
+FIELD(ID_AA64ISAR1, LRCPC, 20, 4)
+FIELD(ID_AA64ISAR1, GPA, 24, 4)
+FIELD(ID_AA64ISAR1, GPI, 28, 4)
+FIELD(ID_AA64ISAR1, FRINTTS, 32, 4)
+FIELD(ID_AA64ISAR1, SB, 36, 4)
+FIELD(ID_AA64ISAR1, SPECRES, 40, 4)
+
+FIELD(ID_AA64PFR0, EL0, 0, 4)
+FIELD(ID_AA64PFR0, EL1, 4, 4)
+FIELD(ID_AA64PFR0, EL2, 8, 4)
+FIELD(ID_AA64PFR0, EL3, 12, 4)
+FIELD(ID_AA64PFR0, FP, 16, 4)
+FIELD(ID_AA64PFR0, ADVSIMD, 20, 4)
+FIELD(ID_AA64PFR0, GIC, 24, 4)
+FIELD(ID_AA64PFR0, RAS, 28, 4)
+FIELD(ID_AA64PFR0, SVE, 32, 4)
+
 QEMU_BUILD_BUG_ON(ARRAY_SIZE(((ARMCPU *)0)->ccsidr) <= R_V7M_CSSELR_INDEX_MASK);
 
 /* If adding a feature bit which corresponds to a Linux ELF
@@ -1459,7 +1573,6 @@ enum arm_features {
     ARM_FEATURE_VFP3,
     ARM_FEATURE_VFP_FP16,
     ARM_FEATURE_NEON,
-    ARM_FEATURE_THUMB_DIV, /* divide supported in Thumb encoding */
     ARM_FEATURE_M, /* Microcontroller profile.  */
     ARM_FEATURE_OMAPCP, /* OMAP specific CP15 ops handling.  */
     ARM_FEATURE_THUMB2EE,
@@ -1469,7 +1582,6 @@ enum arm_features {
     ARM_FEATURE_V5,
     ARM_FEATURE_STRONGARM,
     ARM_FEATURE_VAPA, /* cp15 VA to PA lookups */
-    ARM_FEATURE_ARM_DIV, /* divide supported in ARM encoding */
     ARM_FEATURE_VFP4, /* VFPv4 (implies that NEON is v2) */
     ARM_FEATURE_GENERIC_TIMER,
     ARM_FEATURE_MVFR, /* Media and VFP Feature Registers 0 and 1 */
@@ -1482,30 +1594,15 @@ enum arm_features {
     ARM_FEATURE_LPAE, /* has Large Physical Address Extension */
     ARM_FEATURE_V8,
     ARM_FEATURE_AARCH64, /* supports 64 bit mode */
-    ARM_FEATURE_V8_AES, /* implements AES part of v8 Crypto Extensions */
     ARM_FEATURE_CBAR, /* has cp15 CBAR */
     ARM_FEATURE_CRC, /* ARMv8 CRC instructions */
     ARM_FEATURE_CBAR_RO, /* has cp15 CBAR and it is read-only */
     ARM_FEATURE_EL2, /* has EL2 Virtualization support */
     ARM_FEATURE_EL3, /* has EL3 Secure monitor support */
-    ARM_FEATURE_V8_SHA1, /* implements SHA1 part of v8 Crypto Extensions */
-    ARM_FEATURE_V8_SHA256, /* implements SHA256 part of v8 Crypto Extensions */
-    ARM_FEATURE_V8_PMULL, /* implements PMULL part of v8 Crypto Extensions */
     ARM_FEATURE_THUMB_DSP, /* DSP insns supported in the Thumb encodings */
     ARM_FEATURE_PMU, /* has PMU support */
     ARM_FEATURE_VBAR, /* has cp15 VBAR */
     ARM_FEATURE_M_SECURITY, /* M profile Security Extension */
-    ARM_FEATURE_JAZELLE, /* has (trivial) Jazelle implementation */
-    ARM_FEATURE_SVE, /* has Scalable Vector Extension */
-    ARM_FEATURE_V8_SHA512, /* implements SHA512 part of v8 Crypto Extensions */
-    ARM_FEATURE_V8_SHA3, /* implements SHA3 part of v8 Crypto Extensions */
-    ARM_FEATURE_V8_SM3, /* implements SM3 part of v8 Crypto Extensions */
-    ARM_FEATURE_V8_SM4, /* implements SM4 part of v8 Crypto Extensions */
-    ARM_FEATURE_V8_ATOMICS, /* ARMv8.1-Atomics feature */
-    ARM_FEATURE_V8_RDM, /* implements v8.1 simd round multiply */
-    ARM_FEATURE_V8_DOTPROD, /* implements v8.2 simd dot product */
-    ARM_FEATURE_V8_FP16, /* implements v8.2 half-precision float */
-    ARM_FEATURE_V8_FCMA, /* has complex number part of v8.3 extensions.  */
     ARM_FEATURE_M_MAIN, /* M profile Main Extension */
 };
 
@@ -3056,5 +3153,158 @@ static inline uint64_t *aa64_vfp_qreg(CPUARMState *env, unsigned regno)
 
 /* Shared between translate-sve.c and sve_helper.c.  */
 extern const uint64_t pred_esz_masks[4];
+
+/*
+ * 32-bit feature tests via id registers.
+ */
+static inline bool isar_feature_thumb_div(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar0, ID_ISAR0, DIVIDE) != 0;
+}
+
+static inline bool isar_feature_arm_div(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar0, ID_ISAR0, DIVIDE) > 1;
+}
+
+static inline bool isar_feature_jazelle(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar1, ID_ISAR1, JAZELLE) != 0;
+}
+
+static inline bool isar_feature_aa32_aes(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, AES) != 0;
+}
+
+static inline bool isar_feature_aa32_pmull(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, AES) > 1;
+}
+
+static inline bool isar_feature_aa32_sha1(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, SHA1) != 0;
+}
+
+static inline bool isar_feature_aa32_sha2(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, SHA2) != 0;
+}
+
+static inline bool isar_feature_aa32_crc32(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, CRC32) != 0;
+}
+
+static inline bool isar_feature_aa32_rdm(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, RDM) != 0;
+}
+
+static inline bool isar_feature_aa32_vcma(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar5, ID_ISAR5, VCMA) != 0;
+}
+
+static inline bool isar_feature_aa32_dp(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_isar6, ID_ISAR6, DP) != 0;
+}
+
+static inline bool isar_feature_aa32_fp16_arith(const ARMISARegisters *id)
+{
+    /*
+     * This is a placeholder for use by VCMA until the rest of
+     * the ARMv8.2-FP16 extension is implemented for aa32 mode.
+     * At which point we can properly set and check MVFR1.FPHP.
+     */
+    return FIELD_EX64(id->id_aa64pfr0, ID_AA64PFR0, FP) == 1;
+}
+
+/*
+ * 64-bit feature tests via id registers.
+ */
+static inline bool isar_feature_aa64_aes(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, AES) != 0;
+}
+
+static inline bool isar_feature_aa64_pmull(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, AES) > 1;
+}
+
+static inline bool isar_feature_aa64_sha1(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, SHA1) != 0;
+}
+
+static inline bool isar_feature_aa64_sha256(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, SHA2) != 0;
+}
+
+static inline bool isar_feature_aa64_sha512(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, SHA2) > 1;
+}
+
+static inline bool isar_feature_aa64_crc32(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, CRC32) != 0;
+}
+
+static inline bool isar_feature_aa64_atomics(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, ATOMIC) != 0;
+}
+
+static inline bool isar_feature_aa64_rdm(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, RDM) != 0;
+}
+
+static inline bool isar_feature_aa64_sha3(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, SHA3) != 0;
+}
+
+static inline bool isar_feature_aa64_sm3(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, SM3) != 0;
+}
+
+static inline bool isar_feature_aa64_sm4(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, SM4) != 0;
+}
+
+static inline bool isar_feature_aa64_dp(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, DP) != 0;
+}
+
+static inline bool isar_feature_aa64_fcma(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64isar1, ID_AA64ISAR1, FCMA) != 0;
+}
+
+static inline bool isar_feature_aa64_fp16(const ARMISARegisters *id)
+{
+    /* We always set the AdvSIMD and FP fields identically wrt FP16.  */
+    return FIELD_EX64(id->id_aa64pfr0, ID_AA64PFR0, FP) == 1;
+}
+
+static inline bool isar_feature_aa64_sve(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64pfr0, ID_AA64PFR0, SVE) != 0;
+}
+
+/*
+ * Forward to the above feature tests given an ARMCPU pointer.
+ */
+#define cpu_isar_feature(name, cpu) \
+    ({ ARMCPU *cpu_ = (cpu); isar_feature_##name(&cpu_->isar); })
 
 #endif

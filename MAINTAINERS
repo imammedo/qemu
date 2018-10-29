@@ -202,6 +202,8 @@ F: include/hw/intc/mips_gic.h
 F: include/hw/timer/mips_gictimer.h
 F: tests/tcg/mips/
 F: disas/mips.c
+F: disas/nanomips.h
+F: disas/nanomips.cpp
 
 Moxie
 M: Anthony Green <green@moxielogic.com>
@@ -2023,7 +2025,6 @@ F: block/rbd.c
 T: git git://github.com/codyprime/qemu-kvm-jtc.git block
 
 Sheepdog
-M: Hitoshi Mitake <mitake.hitoshi@lab.ntt.co.jp>
 M: Liu Yuan <namei.unix@gmail.com>
 M: Jeff Cody <jcody@redhat.com>
 L: qemu-block@nongnu.org

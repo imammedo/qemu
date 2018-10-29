@@ -1,5 +1,5 @@
 /*
- *  MIPS32 emulation for qemu: main translation routines.
+ *  MIPS emulation for QEMU - main translation routines
  *
  *  Copyright (c) 2004-2005 Jocelyn Mayer
  *  Copyright (c) 2006 Marius Groeger (FPU operations)
@@ -463,8 +463,10 @@ enum {
     OPC_WSBH      = (0x02 << 6) | OPC_BSHFL,
     OPC_SEB       = (0x10 << 6) | OPC_BSHFL,
     OPC_SEH       = (0x18 << 6) | OPC_BSHFL,
-    OPC_ALIGN     = (0x08 << 6) | OPC_BSHFL, /* 010.bp */
-    OPC_ALIGN_END = (0x0B << 6) | OPC_BSHFL, /* 010.00 to 010.11 */
+    OPC_ALIGN     = (0x08 << 6) | OPC_BSHFL, /* 010.bp (010.00 to 010.11) */
+    OPC_ALIGN_1   = (0x09 << 6) | OPC_BSHFL,
+    OPC_ALIGN_2   = (0x0A << 6) | OPC_BSHFL,
+    OPC_ALIGN_3   = (0x0B << 6) | OPC_BSHFL,
     OPC_BITSWAP   = (0x00 << 6) | OPC_BSHFL  /* 00000 */
 };
 
@@ -474,8 +476,14 @@ enum {
 enum {
     OPC_DSBH       = (0x02 << 6) | OPC_DBSHFL,
     OPC_DSHD       = (0x05 << 6) | OPC_DBSHFL,
-    OPC_DALIGN     = (0x08 << 6) | OPC_DBSHFL, /* 01.bp */
-    OPC_DALIGN_END = (0x0F << 6) | OPC_DBSHFL, /* 01.000 to 01.111 */
+    OPC_DALIGN     = (0x08 << 6) | OPC_DBSHFL, /* 01.bp (01.000 to 01.111) */
+    OPC_DALIGN_1   = (0x09 << 6) | OPC_DBSHFL,
+    OPC_DALIGN_2   = (0x0A << 6) | OPC_DBSHFL,
+    OPC_DALIGN_3   = (0x0B << 6) | OPC_DBSHFL,
+    OPC_DALIGN_4   = (0x0C << 6) | OPC_DBSHFL,
+    OPC_DALIGN_5   = (0x0D << 6) | OPC_DBSHFL,
+    OPC_DALIGN_6   = (0x0E << 6) | OPC_DBSHFL,
+    OPC_DALIGN_7   = (0x0F << 6) | OPC_DBSHFL,
     OPC_DBITSWAP   = (0x00 << 6) | OPC_DBSHFL, /* 00000 */
 };
 
@@ -1389,6 +1397,979 @@ enum {
     OPC_BINSRI_df   = (0x7 << 23) | OPC_MSA_BIT_09,
 };
 
+
+/*
+ *    AN OVERVIEW OF MXU EXTENSION INSTRUCTION SET
+ *    ============================================
+ *
+ * MXU (full name: MIPS eXtension/enhanced Unit) is an SIMD extension of MIPS32
+ * instructions set. It is designed to fit the needs of signal, graphical and
+ * video processing applications. MXU instruction set is used in Xburst family
+ * of microprocessors by Ingenic.
+ *
+ * MXU unit contains 17 registers called X0-X16. X0 is always zero, and X16 is
+ * the control register.
+ *
+ * The notation used in MXU assembler mnemonics:
+ *
+ *   XRa, XRb, XRc, XRd - MXU registers
+ *   Rb, Rc, Rd, Rs, Rt - general purpose MIPS registers
+ *   s12                - a subfield of an instruction code
+ *   strd2              - a subfield of an instruction code
+ *   eptn2              - a subfield of an instruction code
+ *   eptn3              - a subfield of an instruction code
+ *   optn2              - a subfield of an instruction code
+ *   optn3              - a subfield of an instruction code
+ *   sft4               - a subfield of an instruction code
+ *
+ * Load/Store instructions           Multiplication instructions
+ * -----------------------           ---------------------------
+ *
+ *  S32LDD XRa, Rb, s12               S32MADD XRa, XRd, Rs, Rt
+ *  S32STD XRa, Rb, s12               S32MADDU XRa, XRd, Rs, Rt
+ *  S32LDDV XRa, Rb, rc, strd2        S32SUB XRa, XRd, Rs, Rt
+ *  S32STDV XRa, Rb, rc, strd2        S32SUBU XRa, XRd, Rs, Rt
+ *  S32LDI XRa, Rb, s12               S32MUL XRa, XRd, Rs, Rt
+ *  S32SDI XRa, Rb, s12               S32MULU XRa, XRd, Rs, Rt
+ *  S32LDIV XRa, Rb, rc, strd2        D16MUL XRa, XRb, XRc, XRd, optn2
+ *  S32SDIV XRa, Rb, rc, strd2        D16MULE XRa, XRb, XRc, optn2
+ *  S32LDDR XRa, Rb, s12              D16MULF XRa, XRb, XRc, optn2
+ *  S32STDR XRa, Rb, s12              D16MAC XRa, XRb, XRc, XRd, aptn2, optn2
+ *  S32LDDVR XRa, Rb, rc, strd2       D16MACE XRa, XRb, XRc, XRd, aptn2, optn2
+ *  S32STDVR XRa, Rb, rc, strd2       D16MACF XRa, XRb, XRc, XRd, aptn2, optn2
+ *  S32LDIR XRa, Rb, s12              D16MADL XRa, XRb, XRc, XRd, aptn2, optn2
+ *  S32SDIR XRa, Rb, s12              S16MAD XRa, XRb, XRc, XRd, aptn1, optn2
+ *  S32LDIVR XRa, Rb, rc, strd2       Q8MUL XRa, XRb, XRc, XRd
+ *  S32SDIVR XRa, Rb, rc, strd2       Q8MULSU XRa, XRb, XRc, XRd
+ *  S16LDD XRa, Rb, s10, eptn2        Q8MAC XRa, XRb, XRc, XRd, aptn2
+ *  S16STD XRa, Rb, s10, eptn2        Q8MACSU XRa, XRb, XRc, XRd, aptn2
+ *  S16LDI XRa, Rb, s10, eptn2        Q8MADL XRa, XRb, XRc, XRd, aptn2
+ *  S16SDI XRa, Rb, s10, eptn2
+ *  S8LDD XRa, Rb, s8, eptn3
+ *  S8STD XRa, Rb, s8, eptn3         Addition and subtraction instructions
+ *  S8LDI XRa, Rb, s8, eptn3         -------------------------------------
+ *  S8SDI XRa, Rb, s8, eptn3
+ *  LXW Rd, Rs, Rt, strd2             D32ADD XRa, XRb, XRc, XRd, eptn2
+ *  LXH Rd, Rs, Rt, strd2             D32ADDC XRa, XRb, XRc, XRd
+ *  LXHU Rd, Rs, Rt, strd2            D32ACC XRa, XRb, XRc, XRd, eptn2
+ *  LXB Rd, Rs, Rt, strd2             D32ACCM XRa, XRb, XRc, XRd, eptn2
+ *  LXBU Rd, Rs, Rt, strd2            D32ASUM XRa, XRb, XRc, XRd, eptn2
+ *                                    S32CPS XRa, XRb, XRc
+ *                                    Q16ADD XRa, XRb, XRc, XRd, eptn2, optn2
+ * Comparison instructions            Q16ACC XRa, XRb, XRc, XRd, eptn2
+ * -----------------------            Q16ACCM XRa, XRb, XRc, XRd, eptn2
+ *                                    D16ASUM XRa, XRb, XRc, XRd, eptn2
+ *  S32MAX XRa, XRb, XRc              D16CPS XRa, XRb,
+ *  S32MIN XRa, XRb, XRc              D16AVG XRa, XRb, XRc
+ *  S32SLT XRa, XRb, XRc              D16AVGR XRa, XRb, XRc
+ *  S32MOVZ XRa, XRb, XRc             Q8ADD XRa, XRb, XRc, eptn2
+ *  S32MOVN XRa, XRb, XRc             Q8ADDE XRa, XRb, XRc, XRd, eptn2
+ *  D16MAX XRa, XRb, XRc              Q8ACCE XRa, XRb, XRc, XRd, eptn2
+ *  D16MIN XRa, XRb, XRc              Q8ABD XRa, XRb, XRc
+ *  D16SLT XRa, XRb, XRc              Q8SAD XRa, XRb, XRc, XRd
+ *  D16MOVZ XRa, XRb, XRc             Q8AVG XRa, XRb, XRc
+ *  D16MOVN XRa, XRb, XRc             Q8AVGR XRa, XRb, XRc
+ *  Q8MAX XRa, XRb, XRc               D8SUM XRa, XRb, XRc, XRd
+ *  Q8MIN XRa, XRb, XRc               D8SUMC XRa, XRb, XRc, XRd
+ *  Q8SLT XRa, XRb, XRc
+ *  Q8SLTU XRa, XRb, XRc
+ *  Q8MOVZ XRa, XRb, XRc             Shift instructions
+ *  Q8MOVN XRa, XRb, XRc             ------------------
+ *
+ *                                    D32SLL XRa, XRb, XRc, XRd, sft4
+ * Bitwise instructions               D32SLR XRa, XRb, XRc, XRd, sft4
+ * --------------------               D32SAR XRa, XRb, XRc, XRd, sft4
+ *                                    D32SARL XRa, XRb, XRc, sft4
+ *  S32NOR XRa, XRb, XRc              D32SLLV XRa, XRb, Rb
+ *  S32AND XRa, XRb, XRc              D32SLRV XRa, XRb, Rb
+ *  S32XOR XRa, XRb, XRc              D32SARV XRa, XRb, Rb
+ *  S32OR XRa, XRb, XRc               D32SARW XRa, XRb, XRc, Rb
+ *                                    Q16SLL XRa, XRb, XRc, XRd, sft4
+ *                                    Q16SLR XRa, XRb, XRc, XRd, sft4
+ * Miscelaneous instructions          Q16SAR XRa, XRb, XRc, XRd, sft4
+ * -------------------------          Q16SLLV XRa, XRb, Rb
+ *                                    Q16SLRV XRa, XRb, Rb
+ *  S32SFL XRa, XRb, XRc, XRd, optn2  Q16SARV XRa, XRb, Rb
+ *  S32ALN XRa, XRb, XRc, Rb
+ *  S32ALNI XRa, XRb, XRc, s3
+ *  S32LUI XRa, s8, optn3            Move instructions
+ *  S32EXTR XRa, XRb, Rb, bits5      -----------------
+ *  S32EXTRV XRa, XRb, Rs, Rt
+ *  Q16SCOP XRa, XRb, XRc, XRd        S32M2I XRa, Rb
+ *  Q16SAT XRa, XRb, XRc              S32I2M XRa, Rb
+ *
+ *
+ *              bits
+ *             05..00
+ *
+ *          ┌─ 000000 ─ OPC_MXU_S32MADD
+ *          ├─ 000001 ─ OPC_MXU_S32MADDU
+ *          ├─ 000010 ─ <not assigned>
+ *          │                               20..18
+ *          ├─ 000011 ─ OPC_MXU__POOL00 ─┬─ 000 ─ OPC_MXU_S32MAX
+ *          │                            ├─ 001 ─ OPC_MXU_S32MIN
+ *          │                            ├─ 010 ─ OPC_MXU_D16MAX
+ *          │                            ├─ 011 ─ OPC_MXU_D16MIN
+ *          │                            ├─ 100 ─ OPC_MXU_Q8MAX
+ *          │                            ├─ 101 ─ OPC_MXU_Q8MIN
+ *          │                            ├─ 110 ─ OPC_MXU_Q8SLT
+ *          │                            └─ 111 ─ OPC_MXU_Q8SLTU
+ *          ├─ 000100 ─ OPC_MXU_S32MSUB
+ *          ├─ 000101 ─ OPC_MXU_S32MSUBU    20..18
+ *          ├─ 000110 ─ OPC_MXU__POOL01 ─┬─ 000 ─ OPC_MXU_S32SLT
+ *          │                            ├─ 001 ─ OPC_MXU_D16SLT
+ *          │                            ├─ 010 ─ OPC_MXU_D16AVG
+ *          │                            ├─ 011 ─ OPC_MXU_D16AVGR
+ *          │                            ├─ 100 ─ OPC_MXU_Q8AVG
+ *          │                            ├─ 101 ─ OPC_MXU_Q8AVGR
+ *          │                            └─ 111 ─ OPC_MXU_Q8ADD
+ *          │
+ *          │                               20..18
+ *          ├─ 000111 ─ OPC_MXU__POOL02 ─┬─ 000 ─ OPC_MXU_S32CPS
+ *          │                            ├─ 010 ─ OPC_MXU_D16CPS
+ *          │                            ├─ 100 ─ OPC_MXU_Q8ABD
+ *          │                            └─ 110 ─ OPC_MXU_Q16SAT
+ *          ├─ 001000 ─ OPC_MXU_D16MUL
+ *          │                               25..24
+ *          ├─ 001001 ─ OPC_MXU__POOL03 ─┬─ 00 ─ OPC_MXU_D16MULF
+ *          │                            └─ 01 ─ OPC_MXU_D16MULE
+ *          ├─ 001010 ─ OPC_MXU_D16MAC
+ *          ├─ 001011 ─ OPC_MXU_D16MACF
+ *          ├─ 001100 ─ OPC_MXU_D16MADL
+ *          │                               25..24
+ *          ├─ 001101 ─ OPC_MXU__POOL04 ─┬─ 00 ─ OPC_MXU_S16MAD
+ *          │                            └─ 01 ─ OPC_MXU_S16MAD_1
+ *          ├─ 001110 ─ OPC_MXU_Q16ADD
+ *          ├─ 001111 ─ OPC_MXU_D16MACE
+ *          │                               23
+ *          ├─ 010000 ─ OPC_MXU__POOL05 ─┬─ 0 ─ OPC_MXU_S32LDD
+ *          │                            └─ 1 ─ OPC_MXU_S32LDDR
+ *          │
+ *          │                               23
+ *          ├─ 010001 ─ OPC_MXU__POOL06 ─┬─ 0 ─ OPC_MXU_S32STD
+ *          │                            └─ 1 ─ OPC_MXU_S32STDR
+ *          │
+ *          │                               13..10
+ *          ├─ 010010 ─ OPC_MXU__POOL07 ─┬─ 0000 ─ OPC_MXU_S32LDDV
+ *          │                            └─ 0001 ─ OPC_MXU_S32LDDVR
+ *          │
+ *          │                               13..10
+ *          ├─ 010011 ─ OPC_MXU__POOL08 ─┬─ 0000 ─ OPC_MXU_S32STDV
+ *          │                            └─ 0001 ─ OPC_MXU_S32STDVR
+ *          │
+ *          │                               23
+ *          ├─ 010100 ─ OPC_MXU__POOL09 ─┬─ 0 ─ OPC_MXU_S32LDI
+ *          │                            └─ 1 ─ OPC_MXU_S32LDIR
+ *          │
+ *          │                               23
+ *          ├─ 010101 ─ OPC_MXU__POOL10 ─┬─ 0 ─ OPC_MXU_S32SDI
+ *          │                            └─ 1 ─ OPC_MXU_S32SDIR
+ *          │
+ *          │                               13..10
+ *          ├─ 010110 ─ OPC_MXU__POOL11 ─┬─ 0000 ─ OPC_MXU_S32LDIV
+ *          │                            └─ 0001 ─ OPC_MXU_S32LDIVR
+ *          │
+ *          │                               13..10
+ *          ├─ 010111 ─ OPC_MXU__POOL12 ─┬─ 0000 ─ OPC_MXU_S32SDIV
+ *          │                            └─ 0001 ─ OPC_MXU_S32SDIVR
+ *          ├─ 011000 ─ OPC_MXU_D32ADD
+ *          │                               23..22
+ *   MXU    ├─ 011001 ─ OPC_MXU__POOL13 ─┬─ 00 ─ OPC_MXU_D32ACC
+ * opcodes ─┤                            ├─ 01 ─ OPC_MXU_D32ACCM
+ *          │                            └─ 10 ─ OPC_MXU_D32ASUM
+ *          ├─ 011010 ─ <not assigned>
+ *          │                               23..22
+ *          ├─ 011011 ─ OPC_MXU__POOL14 ─┬─ 00 ─ OPC_MXU_Q16ACC
+ *          │                            ├─ 01 ─ OPC_MXU_Q16ACCM
+ *          │                            └─ 10 ─ OPC_MXU_Q16ASUM
+ *          │
+ *          │                               23..22
+ *          ├─ 011100 ─ OPC_MXU__POOL15 ─┬─ 00 ─ OPC_MXU_Q8ADDE
+ *          │                            ├─ 01 ─ OPC_MXU_D8SUM
+ *          ├─ 011101 ─ OPC_MXU_Q8ACCE   └─ 10 ─ OPC_MXU_D8SUMC
+ *          ├─ 011110 ─ <not assigned>
+ *          ├─ 011111 ─ <not assigned>
+ *          ├─ 100000 ─ <not assigned>
+ *          ├─ 100001 ─ <not assigned>
+ *          ├─ 100010 ─ OPC_MXU_S8LDD
+ *          ├─ 100011 ─ OPC_MXU_S8STD
+ *          ├─ 100100 ─ OPC_MXU_S8LDI
+ *          ├─ 100101 ─ OPC_MXU_S8SDI
+ *          │                               15..14
+ *          ├─ 100110 ─ OPC_MXU__POOL16 ─┬─ 00 ─ OPC_MXU_S32MUL
+ *          │                            ├─ 00 ─ OPC_MXU_S32MULU
+ *          │                            ├─ 00 ─ OPC_MXU_S32EXTR
+ *          │                            └─ 00 ─ OPC_MXU_S32EXTRV
+ *          │
+ *          │                               20..18
+ *          ├─ 100111 ─ OPC_MXU__POOL17 ─┬─ 000 ─ OPC_MXU_D32SARW
+ *          │                            ├─ 001 ─ OPC_MXU_S32ALN
+ *          ├─ 101000 ─ OPC_MXU_LXB      ├─ 010 ─ OPC_MXU_S32ALNI
+ *          ├─ 101001 ─ <not assigned>   ├─ 011 ─ OPC_MXU_S32NOR
+ *          ├─ 101010 ─ OPC_MXU_S16LDD   ├─ 100 ─ OPC_MXU_S32AND
+ *          ├─ 101011 ─ OPC_MXU_S16STD   ├─ 101 ─ OPC_MXU_S32OR
+ *          ├─ 101100 ─ OPC_MXU_S16LDI   ├─ 110 ─ OPC_MXU_S32XOR
+ *          ├─ 101101 ─ OPC_MXU_S16SDI   └─ 111 ─ OPC_MXU_S32LUI
+ *          ├─ 101000 ─ <not assigned>
+ *          ├─ 101001 ─ <not assigned>
+ *          ├─ 101010 ─ <not assigned>
+ *          ├─ 101011 ─ <not assigned>
+ *          ├─ 101100 ─ <not assigned>
+ *          ├─ 101101 ─ <not assigned>
+ *          ├─ 101110 ─ OPC_MXU_S32M2I
+ *          ├─ 101111 ─ OPC_MXU_S32I2M
+ *          ├─ 110000 ─ OPC_MXU_D32SLL
+ *          ├─ 110001 ─ OPC_MXU_D32SLR
+ *          ├─ 110010 ─ OPC_MXU_D32SARL
+ *          ├─ 110011 ─ OPC_MXU_D32SAR
+ *          ├─ 110100 ─ OPC_MXU_Q16SLL
+ *          ├─ 110101 ─ OPC_MXU_Q16SLR      20..18
+ *          ├─ 110110 ─ OPC_MXU__POOL18 ─┬─ 000 ─ OPC_MXU_D32SLLV
+ *          │                            ├─ 001 ─ OPC_MXU_D32SLRV
+ *          │                            ├─ 010 ─ OPC_MXU_D32SARV
+ *          │                            ├─ 011 ─ OPC_MXU_Q16SLLV
+ *          │                            ├─ 100 ─ OPC_MXU_Q16SLRV
+ *          │                            └─ 101 ─ OPC_MXU_Q16SARV
+ *          ├─ 110111 ─ OPC_MXU_Q16SAR
+ *          │                               23..22
+ *          ├─ 111000 ─ OPC_MXU__POOL19 ─┬─ 00 ─ OPC_MXU_Q8MUL
+ *          │                            └─ 01 ─ OPC_MXU_Q8MULSU
+ *          │
+ *          │                               20..18
+ *          ├─ 111001 ─ OPC_MXU__POOL20 ─┬─ 000 ─ OPC_MXU_Q8MOVZ
+ *          │                            ├─ 001 ─ OPC_MXU_Q8MOVN
+ *          │                            ├─ 010 ─ OPC_MXU_D16MOVZ
+ *          │                            ├─ 011 ─ OPC_MXU_D16MOVN
+ *          │                            ├─ 100 ─ OPC_MXU_S32MOVZ
+ *          │                            └─ 101 ─ OPC_MXU_S32MOV
+ *          │
+ *          │                               23..22
+ *          ├─ 111010 ─ OPC_MXU__POOL21 ─┬─ 00 ─ OPC_MXU_Q8MAC
+ *          │                            └─ 10 ─ OPC_MXU_Q8MACSU
+ *          ├─ 111011 ─ OPC_MXU_Q16SCOP
+ *          ├─ 111100 ─ OPC_MXU_Q8MADL
+ *          ├─ 111101 ─ OPC_MXU_S32SFL
+ *          ├─ 111110 ─ OPC_MXU_Q8SAD
+ *          └─ 111111 ─ <not assigned>
+ *
+ *
+ *   Compiled after:
+ *
+ *   "XBurst® Instruction Set Architecture MIPS eXtension/enhanced Unit
+ *   Programming Manual", Ingenic Semiconductor Co, Ltd., 2017
+ */
+
+enum {
+    OPC_MXU_S32MADD  = 0x00,
+    OPC_MXU_S32MADDU = 0x01,
+    /* not assigned 0x02 */
+    OPC_MXU__POOL00  = 0x03,
+    OPC_MXU_S32MSUB  = 0x04,
+    OPC_MXU_S32MSUBU = 0x05,
+    OPC_MXU__POOL01  = 0x06,
+    OPC_MXU__POOL02  = 0x07,
+    OPC_MXU_D16MUL   = 0x08,
+    OPC_MXU__POOL03  = 0x09,
+    OPC_MXU_D16MAC   = 0x0A,
+    OPC_MXU_D16MACF  = 0x0B,
+    OPC_MXU_D16MADL  = 0x0C,
+    OPC_MXU__POOL04  = 0x0D,
+    OPC_MXU_Q16ADD   = 0x0E,
+    OPC_MXU_D16MACE  = 0x0F,
+    OPC_MXU__POOL05  = 0x10,
+    OPC_MXU__POOL06  = 0x11,
+    OPC_MXU__POOL07  = 0x12,
+    OPC_MXU__POOL08  = 0x13,
+    OPC_MXU__POOL09  = 0x14,
+    OPC_MXU__POOL10  = 0x15,
+    OPC_MXU__POOL11  = 0x16,
+    OPC_MXU__POOL12  = 0x17,
+    OPC_MXU_D32ADD   = 0x18,
+    OPC_MXU__POOL13  = 0x19,
+    /* not assigned 0x1A */
+    OPC_MXU__POOL14  = 0x1B,
+    OPC_MXU__POOL15  = 0x1C,
+    OPC_MXU_Q8ACCE   = 0x1D,
+    /* not assigned 0x1E */
+    /* not assigned 0x1F */
+    /* not assigned 0x20 */
+    /* not assigned 0x21 */
+    OPC_MXU_S8LDD    = 0x22,
+    OPC_MXU_S8STD    = 0x23,
+    OPC_MXU_S8LDI    = 0x24,
+    OPC_MXU_S8SDI    = 0x25,
+    OPC_MXU__POOL16  = 0x26,
+    OPC_MXU__POOL17  = 0x27,
+    OPC_MXU_LXB      = 0x28,
+    /* not assigned 0x29 */
+    OPC_MXU_S16LDD   = 0x2A,
+    OPC_MXU_S16STD   = 0x2B,
+    OPC_MXU_S16LDI   = 0x2C,
+    OPC_MXU_S16SDI   = 0x2D,
+    OPC_MXU_S32M2I   = 0x2E,
+    OPC_MXU_S32I2M   = 0x2F,
+    OPC_MXU_D32SLL   = 0x30,
+    OPC_MXU_D32SLR   = 0x31,
+    OPC_MXU_D32SARL  = 0x32,
+    OPC_MXU_D32SAR   = 0x33,
+    OPC_MXU_Q16SLL   = 0x34,
+    OPC_MXU_Q16SLR   = 0x35,
+    OPC_MXU__POOL18  = 0x36,
+    OPC_MXU_Q16SAR   = 0x37,
+    OPC_MXU__POOL19  = 0x38,
+    OPC_MXU__POOL20  = 0x39,
+    OPC_MXU__POOL21  = 0x3A,
+    OPC_MXU_Q16SCOP  = 0x3B,
+    OPC_MXU_Q8MADL   = 0x3C,
+    OPC_MXU_S32SFL   = 0x3D,
+    OPC_MXU_Q8SAD    = 0x3E,
+    /* not assigned 0x3F */
+};
+
+
+/*
+ * MXU pool 00
+ */
+enum {
+    OPC_MXU_S32MAX   = 0x00,
+    OPC_MXU_S32MIN   = 0x01,
+    OPC_MXU_D16MAX   = 0x02,
+    OPC_MXU_D16MIN   = 0x03,
+    OPC_MXU_Q8MAX    = 0x04,
+    OPC_MXU_Q8MIN    = 0x05,
+    OPC_MXU_Q8SLT    = 0x06,
+    OPC_MXU_Q8SLTU   = 0x07,
+};
+
+/*
+ * MXU pool 01
+ */
+enum {
+    OPC_MXU_S32SLT   = 0x00,
+    OPC_MXU_D16SLT   = 0x01,
+    OPC_MXU_D16AVG   = 0x02,
+    OPC_MXU_D16AVGR  = 0x03,
+    OPC_MXU_Q8AVG    = 0x04,
+    OPC_MXU_Q8AVGR   = 0x05,
+    OPC_MXU_Q8ADD    = 0x07,
+};
+
+/*
+ * MXU pool 02
+ */
+enum {
+    OPC_MXU_S32CPS   = 0x00,
+    OPC_MXU_D16CPS   = 0x02,
+    OPC_MXU_Q8ABD    = 0x04,
+    OPC_MXU_Q16SAT   = 0x06,
+};
+
+/*
+ * MXU pool 03
+ */
+enum {
+    OPC_MXU_D16MULF  = 0x00,
+    OPC_MXU_D16MULE  = 0x01,
+};
+
+/*
+ * MXU pool 04
+ */
+enum {
+    OPC_MXU_S16MAD   = 0x00,
+    OPC_MXU_S16MAD_1 = 0x01,
+};
+
+/*
+ * MXU pool 05
+ */
+enum {
+    OPC_MXU_S32LDD   = 0x00,
+    OPC_MXU_S32LDDR  = 0x01,
+};
+
+/*
+ * MXU pool 06
+ */
+enum {
+    OPC_MXU_S32STD   = 0x00,
+    OPC_MXU_S32STDR  = 0x01,
+};
+
+/*
+ * MXU pool 07
+ */
+enum {
+    OPC_MXU_S32LDDV  = 0x00,
+    OPC_MXU_S32LDDVR = 0x01,
+};
+
+/*
+ * MXU pool 08
+ */
+enum {
+    OPC_MXU_S32STDV  = 0x00,
+    OPC_MXU_S32STDVR = 0x01,
+};
+
+/*
+ * MXU pool 09
+ */
+enum {
+    OPC_MXU_S32LDI   = 0x00,
+    OPC_MXU_S32LDIR  = 0x01,
+};
+
+/*
+ * MXU pool 10
+ */
+enum {
+    OPC_MXU_S32SDI   = 0x00,
+    OPC_MXU_S32SDIR  = 0x01,
+};
+
+/*
+ * MXU pool 11
+ */
+enum {
+    OPC_MXU_S32LDIV  = 0x00,
+    OPC_MXU_S32LDIVR = 0x01,
+};
+
+/*
+ * MXU pool 12
+ */
+enum {
+    OPC_MXU_S32SDIV  = 0x00,
+    OPC_MXU_S32SDIVR = 0x01,
+};
+
+/*
+ * MXU pool 13
+ */
+enum {
+    OPC_MXU_D32ACC   = 0x00,
+    OPC_MXU_D32ACCM  = 0x01,
+    OPC_MXU_D32ASUM  = 0x02,
+};
+
+/*
+ * MXU pool 14
+ */
+enum {
+    OPC_MXU_Q16ACC   = 0x00,
+    OPC_MXU_Q16ACCM  = 0x01,
+    OPC_MXU_Q16ASUM  = 0x02,
+};
+
+/*
+ * MXU pool 15
+ */
+enum {
+    OPC_MXU_Q8ADDE   = 0x00,
+    OPC_MXU_D8SUM    = 0x01,
+    OPC_MXU_D8SUMC   = 0x02,
+};
+
+/*
+ * MXU pool 16
+ */
+enum {
+    OPC_MXU_S32MUL   = 0x00,
+    OPC_MXU_S32MULU  = 0x01,
+    OPC_MXU_S32EXTR  = 0x02,
+    OPC_MXU_S32EXTRV = 0x03,
+};
+
+/*
+ * MXU pool 17
+ */
+enum {
+    OPC_MXU_D32SARW  = 0x00,
+    OPC_MXU_S32ALN   = 0x01,
+    OPC_MXU_S32ALNI  = 0x02,
+    OPC_MXU_S32NOR   = 0x03,
+    OPC_MXU_S32AND   = 0x04,
+    OPC_MXU_S32OR    = 0x05,
+    OPC_MXU_S32XOR   = 0x06,
+    OPC_MXU_S32LUI   = 0x07,
+};
+
+/*
+ * MXU pool 18
+ */
+enum {
+    OPC_MXU_D32SLLV  = 0x00,
+    OPC_MXU_D32SLRV  = 0x01,
+    OPC_MXU_D32SARV  = 0x03,
+    OPC_MXU_Q16SLLV  = 0x04,
+    OPC_MXU_Q16SLRV  = 0x05,
+    OPC_MXU_Q16SARV  = 0x07,
+};
+
+/*
+ * MXU pool 19
+ */
+enum {
+    OPC_MXU_Q8MUL    = 0x00,
+    OPC_MXU_Q8MULSU  = 0x01,
+};
+
+/*
+ * MXU pool 20
+ */
+enum {
+    OPC_MXU_Q8MOVZ   = 0x00,
+    OPC_MXU_Q8MOVN   = 0x01,
+    OPC_MXU_D16MOVZ  = 0x02,
+    OPC_MXU_D16MOVN  = 0x03,
+    OPC_MXU_S32MOVZ  = 0x04,
+    OPC_MXU_S32MOVN  = 0x05,
+};
+
+/*
+ * MXU pool 21
+ */
+enum {
+    OPC_MXU_Q8MAC    = 0x00,
+    OPC_MXU_Q8MACSU  = 0x01,
+};
+
+/*
+ *     Overview of the TX79-specific instruction set
+ *     =============================================
+ *
+ * The R5900 and the C790 have 128-bit wide GPRs, where the upper 64 bits
+ * are only used by the specific quadword (128-bit) LQ/SQ load/store
+ * instructions and certain multimedia instructions (MMIs). These MMIs
+ * configure the 128-bit data path as two 64-bit, four 32-bit, eight 16-bit
+ * or sixteen 8-bit paths.
+ *
+ * Reference:
+ *
+ * The Toshiba TX System RISC TX79 Core Architecture manual,
+ * https://wiki.qemu.org/File:C790.pdf
+ *
+ *     Three-Operand Multiply and Multiply-Add (4 instructions)
+ *     --------------------------------------------------------
+ * MADD    [rd,] rs, rt      Multiply/Add
+ * MADDU   [rd,] rs, rt      Multiply/Add Unsigned
+ * MULT    [rd,] rs, rt      Multiply (3-operand)
+ * MULTU   [rd,] rs, rt      Multiply Unsigned (3-operand)
+ *
+ *     Multiply Instructions for Pipeline 1 (10 instructions)
+ *     ------------------------------------------------------
+ * MULT1   [rd,] rs, rt      Multiply Pipeline 1
+ * MULTU1  [rd,] rs, rt      Multiply Unsigned Pipeline 1
+ * DIV1    rs, rt            Divide Pipeline 1
+ * DIVU1   rs, rt            Divide Unsigned Pipeline 1
+ * MADD1   [rd,] rs, rt      Multiply-Add Pipeline 1
+ * MADDU1  [rd,] rs, rt      Multiply-Add Unsigned Pipeline 1
+ * MFHI1   rd                Move From HI1 Register
+ * MFLO1   rd                Move From LO1 Register
+ * MTHI1   rs                Move To HI1 Register
+ * MTLO1   rs                Move To LO1 Register
+ *
+ *     Arithmetic (19 instructions)
+ *     ----------------------------
+ * PADDB   rd, rs, rt        Parallel Add Byte
+ * PSUBB   rd, rs, rt        Parallel Subtract Byte
+ * PADDH   rd, rs, rt        Parallel Add Halfword
+ * PSUBH   rd, rs, rt        Parallel Subtract Halfword
+ * PADDW   rd, rs, rt        Parallel Add Word
+ * PSUBW   rd, rs, rt        Parallel Subtract Word
+ * PADSBH  rd, rs, rt        Parallel Add/Subtract Halfword
+ * PADDSB  rd, rs, rt        Parallel Add with Signed Saturation Byte
+ * PSUBSB  rd, rs, rt        Parallel Subtract with Signed Saturation Byte
+ * PADDSH  rd, rs, rt        Parallel Add with Signed Saturation Halfword
+ * PSUBSH  rd, rs, rt        Parallel Subtract with Signed Saturation Halfword
+ * PADDSW  rd, rs, rt        Parallel Add with Signed Saturation Word
+ * PSUBSW  rd, rs, rt        Parallel Subtract with Signed Saturation Word
+ * PADDUB  rd, rs, rt        Parallel Add with Unsigned saturation Byte
+ * PSUBUB  rd, rs, rt        Parallel Subtract with Unsigned saturation Byte
+ * PADDUH  rd, rs, rt        Parallel Add with Unsigned saturation Halfword
+ * PSUBUH  rd, rs, rt        Parallel Subtract with Unsigned saturation Halfword
+ * PADDUW  rd, rs, rt        Parallel Add with Unsigned saturation Word
+ * PSUBUW  rd, rs, rt        Parallel Subtract with Unsigned saturation Word
+ *
+ *     Min/Max (4 instructions)
+ *     ------------------------
+ * PMAXH   rd, rs, rt        Parallel Maximum Halfword
+ * PMINH   rd, rs, rt        Parallel Minimum Halfword
+ * PMAXW   rd, rs, rt        Parallel Maximum Word
+ * PMINW   rd, rs, rt        Parallel Minimum Word
+ *
+ *     Absolute (2 instructions)
+ *     -------------------------
+ * PABSH   rd, rt            Parallel Absolute Halfword
+ * PABSW   rd, rt            Parallel Absolute Word
+ *
+ *     Logical (4 instructions)
+ *     ------------------------
+ * PAND    rd, rs, rt        Parallel AND
+ * POR     rd, rs, rt        Parallel OR
+ * PXOR    rd, rs, rt        Parallel XOR
+ * PNOR    rd, rs, rt        Parallel NOR
+ *
+ *     Shift (9 instructions)
+ *     ----------------------
+ * PSLLH   rd, rt, sa        Parallel Shift Left Logical Halfword
+ * PSRLH   rd, rt, sa        Parallel Shift Right Logical Halfword
+ * PSRAH   rd, rt, sa        Parallel Shift Right Arithmetic Halfword
+ * PSLLW   rd, rt, sa        Parallel Shift Left Logical Word
+ * PSRLW   rd, rt, sa        Parallel Shift Right Logical Word
+ * PSRAW   rd, rt, sa        Parallel Shift Right Arithmetic Word
+ * PSLLVW  rd, rt, rs        Parallel Shift Left Logical Variable Word
+ * PSRLVW  rd, rt, rs        Parallel Shift Right Logical Variable Word
+ * PSRAVW  rd, rt, rs        Parallel Shift Right Arithmetic Variable Word
+ *
+ *     Compare (6 instructions)
+ *     ------------------------
+ * PCGTB   rd, rs, rt        Parallel Compare for Greater Than Byte
+ * PCEQB   rd, rs, rt        Parallel Compare for Equal Byte
+ * PCGTH   rd, rs, rt        Parallel Compare for Greater Than Halfword
+ * PCEQH   rd, rs, rt        Parallel Compare for Equal Halfword
+ * PCGTW   rd, rs, rt        Parallel Compare for Greater Than Word
+ * PCEQW   rd, rs, rt        Parallel Compare for Equal Word
+ *
+ *     LZC (1 instruction)
+ *     -------------------
+ * PLZCW   rd, rs            Parallel Leading Zero or One Count Word
+ *
+ *     Quadword Load and Store (2 instructions)
+ *     ----------------------------------------
+ * LQ      rt, offset(base)  Load Quadword
+ * SQ      rt, offset(base)  Store Quadword
+ *
+ *     Multiply and Divide (19 instructions)
+ *     -------------------------------------
+ * PMULTW  rd, rs, rt        Parallel Multiply Word
+ * PMULTUW rd, rs, rt        Parallel Multiply Unsigned Word
+ * PDIVW   rs, rt            Parallel Divide Word
+ * PDIVUW  rs, rt            Parallel Divide Unsigned Word
+ * PMADDW  rd, rs, rt        Parallel Multiply-Add Word
+ * PMADDUW rd, rs, rt        Parallel Multiply-Add Unsigned Word
+ * PMSUBW  rd, rs, rt        Parallel Multiply-Subtract Word
+ * PMULTH  rd, rs, rt        Parallel Multiply Halfword
+ * PMADDH  rd, rs, rt        Parallel Multiply-Add Halfword
+ * PMSUBH  rd, rs, rt        Parallel Multiply-Subtract Halfword
+ * PHMADH  rd, rs, rt        Parallel Horizontal Multiply-Add Halfword
+ * PHMSBH  rd, rs, rt        Parallel Horizontal Multiply-Subtract Halfword
+ * PDIVBW  rs, rt            Parallel Divide Broadcast Word
+ * PMFHI   rd                Parallel Move From HI Register
+ * PMFLO   rd                Parallel Move From LO Register
+ * PMTHI   rs                Parallel Move To HI Register
+ * PMTLO   rs                Parallel Move To LO Register
+ * PMFHL   rd                Parallel Move From HI/LO Register
+ * PMTHL   rs                Parallel Move To HI/LO Register
+ *
+ *     Pack/Extend (11 instructions)
+ *     -----------------------------
+ * PPAC5   rd, rt            Parallel Pack to 5 bits
+ * PPACB   rd, rs, rt        Parallel Pack to Byte
+ * PPACH   rd, rs, rt        Parallel Pack to Halfword
+ * PPACW   rd, rs, rt        Parallel Pack to Word
+ * PEXT5   rd, rt            Parallel Extend Upper from 5 bits
+ * PEXTUB  rd, rs, rt        Parallel Extend Upper from Byte
+ * PEXTLB  rd, rs, rt        Parallel Extend Lower from Byte
+ * PEXTUH  rd, rs, rt        Parallel Extend Upper from Halfword
+ * PEXTLH  rd, rs, rt        Parallel Extend Lower from Halfword
+ * PEXTUW  rd, rs, rt        Parallel Extend Upper from Word
+ * PEXTLW  rd, rs, rt        Parallel Extend Lower from Word
+ *
+ *     Others (16 instructions)
+ *     ------------------------
+ * PCPYH   rd, rt            Parallel Copy Halfword
+ * PCPYLD  rd, rs, rt        Parallel Copy Lower Doubleword
+ * PCPYUD  rd, rs, rt        Parallel Copy Upper Doubleword
+ * PREVH   rd, rt            Parallel Reverse Halfword
+ * PINTH   rd, rs, rt        Parallel Interleave Halfword
+ * PINTEH  rd, rs, rt        Parallel Interleave Even Halfword
+ * PEXEH   rd, rt            Parallel Exchange Even Halfword
+ * PEXCH   rd, rt            Parallel Exchange Center Halfword
+ * PEXEW   rd, rt            Parallel Exchange Even Word
+ * PEXCW   rd, rt            Parallel Exchange Center Word
+ * QFSRV   rd, rs, rt        Quadword Funnel Shift Right Variable
+ * MFSA    rd                Move from Shift Amount Register
+ * MTSA    rs                Move to Shift Amount Register
+ * MTSAB   rs, immediate     Move Byte Count to Shift Amount Register
+ * MTSAH   rs, immediate     Move Halfword Count to Shift Amount Register
+ * PROT3W  rd, rt            Parallel Rotate 3 Words
+ *
+ *     The TX79-specific Multimedia Instruction encodings
+ *     ==================================================
+ *
+ * TX79 Multimedia Instruction encoding table keys:
+ *
+ *     *   This code is reserved for future use. An attempt to execute it
+ *         causes a Reserved Instruction exception.
+ *     %   This code indicates an instruction class. The instruction word
+ *         must be further decoded by examining additional tables that show
+ *         the values for other instruction fields.
+ *     #   This code is reserved for the unsupported instructions DMULT,
+ *         DMULTU, DDIV, DDIVU, LL, LLD, SC, SCD, LWC2 and SWC2. An attempt
+ *         to execute it causes a Reserved Instruction exception.
+ *
+ * TX79 Multimedia Instructions encoded by opcode field (MMI, LQ, SQ):
+ *
+ *  31    26                                        0
+ * +--------+----------------------------------------+
+ * | opcode |                                        |
+ * +--------+----------------------------------------+
+ *
+ *   opcode  bits 28..26
+ *     bits |   0   |   1   |   2   |   3   |   4   |   5   |   6   |   7
+ *   31..29 |  000  |  001  |  010  |  011  |  100  |  101  |  110  |  111
+ *   -------+-------+-------+-------+-------+-------+-------+-------+-------
+ *    0 000 |SPECIAL| REGIMM|   J   |  JAL  |  BEQ  |  BNE  |  BLEZ |  BGTZ
+ *    1 001 |  ADDI | ADDIU |  SLTI | SLTIU |  ANDI |  ORI  |  XORI |  LUI
+ *    2 010 |  COP0 |  COP1 |   *   |   *   |  BEQL |  BNEL | BLEZL | BGTZL
+ *    3 011 | DADDI | DADDIU|  LDL  |  LDR  |  MMI% |   *   |   LQ  |   SQ
+ *    4 100 |   LB  |   LH  |  LWL  |   LW  |  LBU  |  LHU  |  LWR  |  LWU
+ *    5 101 |   SB  |   SH  |  SWL  |   SW  |  SDL  |  SDR  |  SWR  | CACHE
+ *    6 110 |   #   |  LWC1 |   #   |  PREF |   #   |  LDC1 |   #   |   LD
+ *    7 111 |   #   |  SWC1 |   #   |   *   |   #   |  SDC1 |   #   |   SD
+ */
+
+enum {
+    TX79_CLASS_MMI = 0x1C << 26,    /* Same as OPC_SPECIAL2 */
+    TX79_LQ        = 0x1E << 26,    /* Same as OPC_MSA */
+    TX79_SQ        = 0x1F << 26,    /* Same as OPC_SPECIAL3 */
+};
+
+/*
+ * TX79 Multimedia Instructions with opcode field = MMI:
+ *
+ *  31    26                                 5      0
+ * +--------+-------------------------------+--------+
+ * |   MMI  |                               |function|
+ * +--------+-------------------------------+--------+
+ *
+ * function  bits 2..0
+ *     bits |   0   |   1   |   2   |   3   |   4   |   5   |   6   |   7
+ *     5..3 |  000  |  001  |  010  |  011  |  100  |  101  |  110  |  111
+ *   -------+-------+-------+-------+-------+-------+-------+-------+-------
+ *    0 000 |  MADD | MADDU |   *   |   *   | PLZCW |   *   |   *   |   *
+ *    1 001 | MMI0% | MMI2% |   *   |   *   |   *   |   *   |   *   |   *
+ *    2 010 | MFHI1 | MTHI1 | MFLO1 | MTLO1 |   *   |   *   |   *   |   *
+ *    3 011 | MULT1 | MULTU1|  DIV1 | DIVU1 |   *   |   *   |   *   |   *
+ *    4 100 | MADD1 | MADDU1|   *   |   *   |   *   |   *   |   *   |   *
+ *    5 101 | MMI1% | MMI3% |   *   |   *   |   *   |   *   |   *   |   *
+ *    6 110 | PMFHL | PMTHL |   *   |   *   | PSLLH |   *   | PSRLH | PSRAH
+ *    7 111 |   *   |   *   |   *   |   *   | PSLLW |   *   | PSRLW | PSRAW
+ */
+
+#define MASK_TX79_MMI(op) (MASK_OP_MAJOR(op) | ((op) & 0x3F))
+enum {
+    TX79_MMI_MADD       = 0x00 | TX79_CLASS_MMI, /* Same as OPC_MADD */
+    TX79_MMI_MADDU      = 0x01 | TX79_CLASS_MMI, /* Same as OPC_MADDU */
+    TX79_MMI_PLZCW      = 0x04 | TX79_CLASS_MMI,
+    TX79_MMI_CLASS_MMI0 = 0x08 | TX79_CLASS_MMI,
+    TX79_MMI_CLASS_MMI2 = 0x09 | TX79_CLASS_MMI,
+    TX79_MMI_MFHI1      = 0x10 | TX79_CLASS_MMI, /* Same minor as OPC_MFHI */
+    TX79_MMI_MTHI1      = 0x11 | TX79_CLASS_MMI, /* Same minor as OPC_MTHI */
+    TX79_MMI_MFLO1      = 0x12 | TX79_CLASS_MMI, /* Same minor as OPC_MFLO */
+    TX79_MMI_MTLO1      = 0x13 | TX79_CLASS_MMI, /* Same minor as OPC_MTLO */
+    TX79_MMI_MULT1      = 0x18 | TX79_CLASS_MMI, /* Same minor as OPC_MULT */
+    TX79_MMI_MULTU1     = 0x19 | TX79_CLASS_MMI, /* Same minor as OPC_MULTU */
+    TX79_MMI_DIV1       = 0x1A | TX79_CLASS_MMI, /* Same minor as OPC_DIV */
+    TX79_MMI_DIVU1      = 0x1B | TX79_CLASS_MMI, /* Same minor as OPC_DIVU */
+    TX79_MMI_MADD1      = 0x20 | TX79_CLASS_MMI,
+    TX79_MMI_MADDU1     = 0x21 | TX79_CLASS_MMI,
+    TX79_MMI_CLASS_MMI1 = 0x28 | TX79_CLASS_MMI,
+    TX79_MMI_CLASS_MMI3 = 0x29 | TX79_CLASS_MMI,
+    TX79_MMI_PMFHL      = 0x30 | TX79_CLASS_MMI,
+    TX79_MMI_PMTHL      = 0x31 | TX79_CLASS_MMI,
+    TX79_MMI_PSLLH      = 0x34 | TX79_CLASS_MMI,
+    TX79_MMI_PSRLH      = 0x36 | TX79_CLASS_MMI,
+    TX79_MMI_PSRAH      = 0x37 | TX79_CLASS_MMI,
+    TX79_MMI_PSLLW      = 0x3C | TX79_CLASS_MMI,
+    TX79_MMI_PSRLW      = 0x3E | TX79_CLASS_MMI,
+    TX79_MMI_PSRAW      = 0x3F | TX79_CLASS_MMI,
+};
+
+/*
+ * TX79 Multimedia Instructions with opcode field = MMI and bits 5..0 = MMI0:
+ *
+ *  31    26                        10     6 5      0
+ * +--------+----------------------+--------+--------+
+ * |   MMI  |                      |function|  MMI0  |
+ * +--------+----------------------+--------+--------+
+ *
+ * function  bits 7..6
+ *     bits |   0   |   1   |   2   |   3
+ *    10..8 |   00  |   01  |   10  |   11
+ *   -------+-------+-------+-------+-------
+ *    0 000 | PADDW | PSUBW | PCGTW | PMAXW
+ *    1 001 | PADDH | PSUBH | PCGTH | PMAXH
+ *    2 010 | PADDB | PSUBB | PCGTB |   *
+ *    3 011 |   *   |   *   |   *   |   *
+ *    4 100 | PADDSW| PSUBSW| PEXTLW| PPACW
+ *    5 101 | PADDSH| PSUBSH| PEXTLH| PPACH
+ *    6 110 | PADDSB| PSUBSB| PEXTLB| PPACB
+ *    7 111 |   *   |   *   | PEXT5 | PPAC5
+ */
+
+#define MASK_TX79_MMI0(op) (MASK_OP_MAJOR(op) | ((op) & 0x7FF))
+enum {
+    TX79_MMI0_PADDW  = (0x00 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PSUBW  = (0x01 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PCGTW  = (0x02 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PMAXW  = (0x03 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PADDH  = (0x04 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PSUBH  = (0x05 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PCGTH  = (0x06 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PMAXH  = (0x07 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PADDB  = (0x08 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PSUBB  = (0x09 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PCGTB  = (0x0A << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PADDSW = (0x10 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PSUBSW = (0x11 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PEXTLW = (0x12 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PPACW  = (0x13 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PADDSH = (0x14 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PSUBSH = (0x15 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PEXTLH = (0x16 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PPACH  = (0x17 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PADDSB = (0x18 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PSUBSB = (0x19 << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PEXTLB = (0x1A << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PPACB  = (0x1B << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PEXT5  = (0x1E << 6) | TX79_MMI_CLASS_MMI0,
+    TX79_MMI0_PPAC5  = (0x1F << 6) | TX79_MMI_CLASS_MMI0,
+};
+
+/*
+ * TX79 Multimedia Instructions with opcode field = MMI and bits 5..0 = MMI1:
+ *
+ *  31    26                        10     6 5      0
+ * +--------+----------------------+--------+--------+
+ * |   MMI  |                      |function|  MMI1  |
+ * +--------+----------------------+--------+--------+
+ *
+ * function  bits 7..6
+ *     bits |   0   |   1   |   2   |   3
+ *    10..8 |   00  |   01  |   10  |   11
+ *   -------+-------+-------+-------+-------
+ *    0 000 |   *   | PABSW | PCEQW | PMINW
+ *    1 001 | PADSBH| PABSH | PCEQH | PMINH
+ *    2 010 |   *   |   *   | PCEQB |   *
+ *    3 011 |   *   |   *   |   *   |   *
+ *    4 100 | PADDUW| PSUBUW| PEXTUW|   *
+ *    5 101 | PADDUH| PSUBUH| PEXTUH|   *
+ *    6 110 | PADDUB| PSUBUB| PEXTUB| QFSRV
+ *    7 111 |   *   |   *   |   *   |   *
+ */
+
+#define MASK_TX79_MMI1(op) (MASK_OP_MAJOR(op) | ((op) & 0x7FF))
+enum {
+    TX79_MMI1_PABSW  = (0x01 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PCEQW  = (0x02 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PMINW  = (0x03 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PADSBH = (0x04 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PABSH  = (0x05 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PCEQH  = (0x06 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PMINH  = (0x07 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PCEQB  = (0x0A << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PADDUW = (0x10 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PSUBUW = (0x11 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PEXTUW = (0x12 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PADDUH = (0x14 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PSUBUH = (0x15 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PEXTUH = (0x16 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PADDUB = (0x18 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PSUBUB = (0x19 << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_PEXTUB = (0x1A << 6) | TX79_MMI_CLASS_MMI1,
+    TX79_MMI1_QFSRV  = (0x1B << 6) | TX79_MMI_CLASS_MMI1,
+};
+
+/*
+ * TX79 Multimedia Instructions with opcode field = MMI and bits 5..0 = MMI2:
+ *
+ *  31    26                        10     6 5      0
+ * +--------+----------------------+--------+--------+
+ * |   MMI  |                      |function|  MMI2  |
+ * +--------+----------------------+--------+--------+
+ *
+ * function  bits 7..6
+ *     bits |   0   |   1   |   2   |   3
+ *    10..8 |   00  |   01  |   10  |   11
+ *   -------+-------+-------+-------+-------
+ *    0 000 | PMADDW|   *   | PSLLVW| PSRLVW
+ *    1 001 | PMSUBW|   *   |   *   |   *
+ *    2 010 | PMFHI | PMFLO | PINTH |   *
+ *    3 011 | PMULTW| PDIVW | PCPYLD|   *
+ *    4 100 | PMADDH| PHMADH|  PAND |  PXOR
+ *    5 101 | PMSUBH| PHMSBH|   *   |   *
+ *    6 110 |   *   |   *   | PEXEH | PREVH
+ *    7 111 | PMULTH| PDIVBW| PEXEW | PROT3W
+ */
+
+#define MASK_TX79_MMI2(op) (MASK_OP_MAJOR(op) | ((op) & 0x7FF))
+enum {
+    TX79_MMI2_PMADDW = (0x00 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PSLLVW = (0x02 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PSRLVW = (0x03 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMSUBW = (0x04 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMFHI  = (0x08 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMFLO  = (0x09 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PINTH  = (0x0A << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMULTW = (0x0C << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PDIVW  = (0x0D << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PCPYLD = (0x0E << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMADDH = (0x10 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PHMADH = (0x11 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PAND   = (0x12 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PXOR   = (0x13 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMSUBH = (0x14 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PHMSBH = (0x15 << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PEXEH  = (0x1A << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PREVH  = (0x1B << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PMULTH = (0x1C << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PDIVBW = (0x1D << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PEXEW  = (0x1E << 6) | TX79_MMI_CLASS_MMI2,
+    TX79_MMI2_PROT3W = (0x1F << 6) | TX79_MMI_CLASS_MMI2,
+};
+
+/*
+ * TX79 Multimedia Instructions with opcode field = MMI and bits 5..0 = MMI3:
+ *
+ *  31    26                        10     6 5      0
+ * +--------+----------------------+--------+--------+
+ * |   MMI  |                      |function|  MMI3  |
+ * +--------+----------------------+--------+--------+
+ *
+ * function  bits 7..6
+ *     bits |   0   |   1   |   2   |   3
+ *    10..8 |   00  |   01  |   10  |   11
+ *   -------+-------+-------+-------+-------
+ *    0 000 |PMADDUW|   *   |   *   | PSRAVW
+ *    1 001 |   *   |   *   |   *   |   *
+ *    2 010 | PMTHI | PMTLO | PINTEH|   *
+ *    3 011 |PMULTUW| PDIVUW| PCPYUD|   *
+ *    4 100 |   *   |   *   |  POR  |  PNOR
+ *    5 101 |   *   |   *   |   *   |   *
+ *    6 110 |   *   |   *   | PEXCH | PCPYH
+ *    7 111 |   *   |   *   | PEXCW |   *
+ */
+
+#define MASK_TX79_MMI3(op) (MASK_OP_MAJOR(op) | ((op) & 0x7FF))
+enum {
+    TX79_MMI3_PMADDUW = (0x00 << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PSRAVW  = (0x03 << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PMTHI   = (0x08 << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PMTLO   = (0x09 << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PINTEH  = (0x0A << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PMULTUW = (0x0C << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PDIVUW  = (0x0D << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PCPYUD  = (0x0E << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_POR     = (0x12 << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PNOR    = (0x13 << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PEXCH   = (0x1A << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PCPYH   = (0x1B << 6) | TX79_MMI_CLASS_MMI3,
+    TX79_MMI3_PEXCW   = (0x1E << 6) | TX79_MMI_CLASS_MMI3,
+};
+
 /* global register indices */
 static TCGv cpu_gpr[32], cpu_PC;
 static TCGv cpu_HI[MIPS_DSP_ACC], cpu_LO[MIPS_DSP_ACC];
@@ -1447,8 +2428,9 @@ typedef struct DisasContext {
     target_ulong saved_pc;
     target_ulong page_start;
     uint32_t opcode;
-    int insn_flags;
+    uint64_t insn_flags;
     int32_t CP0_Config1;
+    int32_t CP0_Config2;
     int32_t CP0_Config3;
     int32_t CP0_Config5;
     /* Routine used to access memory */
@@ -1857,9 +2839,20 @@ static inline void check_dsp(DisasContext *ctx)
     }
 }
 
-static inline void check_dspr2(DisasContext *ctx)
+static inline void check_dsp_r2(DisasContext *ctx)
 {
-    if (unlikely(!(ctx->hflags & MIPS_HFLAG_DSPR2))) {
+    if (unlikely(!(ctx->hflags & MIPS_HFLAG_DSP_R2))) {
+        if (ctx->insn_flags & ASE_DSP) {
+            generate_exception_end(ctx, EXCP_DSPDIS);
+        } else {
+            generate_exception_end(ctx, EXCP_RI);
+        }
+    }
+}
+
+static inline void check_dsp_r3(DisasContext *ctx)
+{
+    if (unlikely(!(ctx->hflags & MIPS_HFLAG_DSP_R3))) {
         if (ctx->insn_flags & ASE_DSP) {
             generate_exception_end(ctx, EXCP_DSPDIS);
         } else {
@@ -1870,7 +2863,7 @@ static inline void check_dspr2(DisasContext *ctx)
 
 /* This code generates a "reserved instruction" exception if the
    CPU does not support the instruction set corresponding to flags. */
-static inline void check_insn(DisasContext *ctx, int flags)
+static inline void check_insn(DisasContext *ctx, uint64_t flags)
 {
     if (unlikely(!(ctx->insn_flags & flags))) {
         generate_exception_end(ctx, EXCP_RI);
@@ -1880,11 +2873,26 @@ static inline void check_insn(DisasContext *ctx, int flags)
 /* This code generates a "reserved instruction" exception if the
    CPU has corresponding flag set which indicates that the instruction
    has been removed. */
-static inline void check_insn_opc_removed(DisasContext *ctx, int flags)
+static inline void check_insn_opc_removed(DisasContext *ctx, uint64_t flags)
 {
     if (unlikely(ctx->insn_flags & flags)) {
         generate_exception_end(ctx, EXCP_RI);
     }
+}
+
+/*
+ * The Linux kernel traps certain reserved instruction exceptions to
+ * emulate the corresponding instructions. QEMU is the kernel in user
+ * mode, so those traps are emulated by accepting the instructions.
+ *
+ * A reserved instruction exception is generated for flagged CPUs if
+ * QEMU runs in system mode.
+ */
+static inline void check_insn_opc_user_only(DisasContext *ctx, uint64_t flags)
+{
+#ifndef CONFIG_USER_ONLY
+    check_insn_opc_removed(ctx, flags);
+#endif
 }
 
 /* This code generates a "reserved instruction" exception if the
@@ -1927,6 +2935,19 @@ static inline void check_xnp(DisasContext *ctx)
     }
 }
 
+#ifndef CONFIG_USER_ONLY
+/*
+ * This code generates a "reserved instruction" exception if the
+ * Config3 PW bit is NOT set.
+ */
+static inline void check_pw(DisasContext *ctx)
+{
+    if (unlikely(!(ctx->CP0_Config3 & (1 << CP0C3_PW)))) {
+        generate_exception_end(ctx, EXCP_RI);
+    }
+}
+#endif
+
 /*
  * This code generates a "reserved instruction" exception if the
  * Config3 MT bit is NOT set.
@@ -1964,6 +2985,35 @@ static inline void check_cp0_mt(DisasContext *ctx)
 static inline void check_nms(DisasContext *ctx)
 {
     if (unlikely(ctx->CP0_Config5 & (1 << CP0C5_NMS))) {
+        generate_exception_end(ctx, EXCP_RI);
+    }
+}
+
+/*
+ * This code generates a "reserved instruction" exception if the
+ * Config5 NMS bit is set, and Config1 DL, Config1 IL, Config2 SL,
+ * Config2 TL, and Config5 L2C are unset.
+ */
+static inline void check_nms_dl_il_sl_tl_l2c(DisasContext *ctx)
+{
+    if (unlikely(ctx->CP0_Config5 & (1 << CP0C5_NMS)) &&
+        !(ctx->CP0_Config1 & (1 << CP0C1_DL)) &&
+        !(ctx->CP0_Config1 & (1 << CP0C1_IL)) &&
+        !(ctx->CP0_Config2 & (1 << CP0C2_SL)) &&
+        !(ctx->CP0_Config2 & (1 << CP0C2_TL)) &&
+        !(ctx->CP0_Config5 & (1 << CP0C5_L2C)))
+    {
+        generate_exception_end(ctx, EXCP_RI);
+    }
+}
+
+/*
+ * This code generates a "reserved instruction" exception if the
+ * Config5 EVA bit is NOT set.
+ */
+static inline void check_eva(DisasContext *ctx)
+{
+    if (unlikely(!(ctx->CP0_Config5 & (1 << CP0C5_EVA)))) {
         generate_exception_end(ctx, EXCP_RI);
     }
 }
@@ -3231,17 +4281,21 @@ static void gen_shift(DisasContext *ctx, uint32_t opc,
 /* Arithmetic on HI/LO registers */
 static void gen_HILO(DisasContext *ctx, uint32_t opc, int acc, int reg)
 {
-    if (reg == 0 && (opc == OPC_MFHI || opc == OPC_MFLO)) {
+    if (reg == 0 && (opc == OPC_MFHI || opc == TX79_MMI_MFHI1 ||
+                     opc == OPC_MFLO || opc == TX79_MMI_MFLO1)) {
         /* Treat as NOP. */
         return;
     }
 
     if (acc != 0) {
-        check_dsp(ctx);
+        if (!(ctx->insn_flags & INSN_R5900)) {
+            check_dsp(ctx);
+        }
     }
 
     switch (opc) {
     case OPC_MFHI:
+    case TX79_MMI_MFHI1:
 #if defined(TARGET_MIPS64)
         if (acc != 0) {
             tcg_gen_ext32s_tl(cpu_gpr[reg], cpu_HI[acc]);
@@ -3252,6 +4306,7 @@ static void gen_HILO(DisasContext *ctx, uint32_t opc, int acc, int reg)
         }
         break;
     case OPC_MFLO:
+    case TX79_MMI_MFLO1:
 #if defined(TARGET_MIPS64)
         if (acc != 0) {
             tcg_gen_ext32s_tl(cpu_gpr[reg], cpu_LO[acc]);
@@ -3262,6 +4317,7 @@ static void gen_HILO(DisasContext *ctx, uint32_t opc, int acc, int reg)
         }
         break;
     case OPC_MTHI:
+    case TX79_MMI_MTHI1:
         if (reg != 0) {
 #if defined(TARGET_MIPS64)
             if (acc != 0) {
@@ -3276,6 +4332,7 @@ static void gen_HILO(DisasContext *ctx, uint32_t opc, int acc, int reg)
         }
         break;
     case OPC_MTLO:
+    case TX79_MMI_MTLO1:
         if (reg != 0) {
 #if defined(TARGET_MIPS64)
             if (acc != 0) {
@@ -3588,11 +4645,14 @@ static void gen_muldiv(DisasContext *ctx, uint32_t opc,
     gen_load_gpr(t1, rt);
 
     if (acc != 0) {
-        check_dsp(ctx);
+        if (!(ctx->insn_flags & INSN_R5900)) {
+            check_dsp(ctx);
+        }
     }
 
     switch (opc) {
     case OPC_DIV:
+    case TX79_MMI_DIV1:
         {
             TCGv t2 = tcg_temp_new();
             TCGv t3 = tcg_temp_new();
@@ -3614,6 +4674,7 @@ static void gen_muldiv(DisasContext *ctx, uint32_t opc,
         }
         break;
     case OPC_DIVU:
+    case TX79_MMI_DIVU1:
         {
             TCGv t2 = tcg_const_tl(0);
             TCGv t3 = tcg_const_tl(1);
@@ -3763,6 +4824,84 @@ static void gen_muldiv(DisasContext *ctx, uint32_t opc,
         generate_exception_end(ctx, EXCP_RI);
         goto out;
     }
+ out:
+    tcg_temp_free(t0);
+    tcg_temp_free(t1);
+}
+
+/*
+ * These MULT and MULTU instructions implemented in for example the
+ * Toshiba/Sony R5900 and the Toshiba TX19, TX39 and TX79 core
+ * architectures are special three-operand variants with the syntax
+ *
+ *     MULT[U][1] rd, rs, rt
+ *
+ * such that
+ *
+ *     (rd, LO, HI) <- rs * rt
+ *
+ * where the low-order 32-bits of the result is placed into both the
+ * GPR rd and the special register LO. The high-order 32-bits of the
+ * result is placed into the special register HI.
+ *
+ * If the GPR rd is omitted in assembly language, it is taken to be 0,
+ * which is the zero register that always reads as 0.
+ */
+static void gen_mul_txx9(DisasContext *ctx, uint32_t opc,
+                         int rd, int rs, int rt)
+{
+    TCGv t0 = tcg_temp_new();
+    TCGv t1 = tcg_temp_new();
+    int acc = 0;
+
+    gen_load_gpr(t0, rs);
+    gen_load_gpr(t1, rt);
+
+    switch (opc) {
+    case TX79_MMI_MULT1:
+        acc = 1;
+        /* Fall through */
+    case OPC_MULT:
+        {
+            TCGv_i32 t2 = tcg_temp_new_i32();
+            TCGv_i32 t3 = tcg_temp_new_i32();
+            tcg_gen_trunc_tl_i32(t2, t0);
+            tcg_gen_trunc_tl_i32(t3, t1);
+            tcg_gen_muls2_i32(t2, t3, t2, t3);
+            if (rd) {
+                tcg_gen_ext_i32_tl(cpu_gpr[rd], t2);
+            }
+            tcg_gen_ext_i32_tl(cpu_LO[acc], t2);
+            tcg_gen_ext_i32_tl(cpu_HI[acc], t3);
+            tcg_temp_free_i32(t2);
+            tcg_temp_free_i32(t3);
+        }
+        break;
+    case TX79_MMI_MULTU1:
+        acc = 1;
+        /* Fall through */
+    case OPC_MULTU:
+        {
+            TCGv_i32 t2 = tcg_temp_new_i32();
+            TCGv_i32 t3 = tcg_temp_new_i32();
+            tcg_gen_trunc_tl_i32(t2, t0);
+            tcg_gen_trunc_tl_i32(t3, t1);
+            tcg_gen_mulu2_i32(t2, t3, t2, t3);
+            if (rd) {
+                tcg_gen_ext_i32_tl(cpu_gpr[rd], t2);
+            }
+            tcg_gen_ext_i32_tl(cpu_LO[acc], t2);
+            tcg_gen_ext_i32_tl(cpu_HI[acc], t3);
+            tcg_temp_free_i32(t2);
+            tcg_temp_free_i32(t3);
+        }
+        break;
+    default:
+        MIPS_INVAL("mul TXx9");
+        generate_exception_end(ctx, EXCP_RI);
+        goto out;
+    }
+
  out:
     tcg_temp_free(t0);
     tcg_temp_free(t1);
@@ -5537,6 +6676,21 @@ static void gen_mfc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             tcg_gen_ext32s_tl(arg, arg);
             rn = "SegCtl2";
             break;
+        case 5:
+            check_pw(ctx);
+            gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_PWBase));
+            rn = "PWBase";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_PWField));
+            rn = "PWField";
+            break;
+        case 7:
+            check_pw(ctx);
+            gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_PWSize));
+            rn = "PWSize";
+            break;
         default:
             goto cp0_unimplemented;
         }
@@ -5571,6 +6725,11 @@ static void gen_mfc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             check_insn(ctx, ISA_MIPS32R2);
             gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_SRSConf4));
             rn = "SRSConf4";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_PWCtl));
+            rn = "PWCtl";
             break;
         default:
             goto cp0_unimplemented;
@@ -6238,6 +7397,21 @@ static void gen_mtc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             gen_helper_mtc0_segctl2(cpu_env, arg);
             rn = "SegCtl2";
             break;
+        case 5:
+            check_pw(ctx);
+            gen_mtc0_store32(arg, offsetof(CPUMIPSState, CP0_PWBase));
+            rn = "PWBase";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_helper_mtc0_pwfield(cpu_env, arg);
+            rn = "PWField";
+            break;
+        case 7:
+            check_pw(ctx);
+            gen_helper_mtc0_pwsize(cpu_env, arg);
+            rn = "PWSize";
+            break;
         default:
             goto cp0_unimplemented;
         }
@@ -6272,6 +7446,11 @@ static void gen_mtc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             check_insn(ctx, ISA_MIPS32R2);
             gen_helper_mtc0_srsconf4(cpu_env, arg);
             rn = "SRSConf4";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_helper_mtc0_pwctl(cpu_env, arg);
+            rn = "PWCtl";
             break;
         default:
             goto cp0_unimplemented;
@@ -6948,6 +8127,21 @@ static void gen_dmfc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             tcg_gen_ld_tl(arg, cpu_env, offsetof(CPUMIPSState, CP0_SegCtl2));
             rn = "SegCtl2";
             break;
+        case 5:
+            check_pw(ctx);
+            tcg_gen_ld_tl(arg, cpu_env, offsetof(CPUMIPSState, CP0_PWBase));
+            rn = "PWBase";
+            break;
+        case 6:
+            check_pw(ctx);
+            tcg_gen_ld_tl(arg, cpu_env, offsetof(CPUMIPSState, CP0_PWField));
+            rn = "PWField";
+            break;
+        case 7:
+            check_pw(ctx);
+            tcg_gen_ld_tl(arg, cpu_env, offsetof(CPUMIPSState, CP0_PWSize));
+            rn = "PWSize";
+            break;
         default:
             goto cp0_unimplemented;
         }
@@ -6982,6 +8176,11 @@ static void gen_dmfc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             check_insn(ctx, ISA_MIPS32R2);
             gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_SRSConf4));
             rn = "SRSConf4";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_mfc0_load32(arg, offsetof(CPUMIPSState, CP0_PWCtl));
+            rn = "PWCtl";
             break;
         default:
             goto cp0_unimplemented;
@@ -7631,6 +8830,21 @@ static void gen_dmtc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             gen_helper_mtc0_segctl2(cpu_env, arg);
             rn = "SegCtl2";
             break;
+        case 5:
+            check_pw(ctx);
+            tcg_gen_st_tl(arg, cpu_env, offsetof(CPUMIPSState, CP0_PWBase));
+            rn = "PWBase";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_helper_mtc0_pwfield(cpu_env, arg);
+            rn = "PWField";
+            break;
+        case 7:
+            check_pw(ctx);
+            gen_helper_mtc0_pwsize(cpu_env, arg);
+            rn = "PWSize";
+            break;
         default:
             goto cp0_unimplemented;
         }
@@ -7665,6 +8879,11 @@ static void gen_dmtc0(DisasContext *ctx, TCGv arg, int reg, int sel)
             check_insn(ctx, ISA_MIPS32R2);
             gen_helper_mtc0_srsconf4(cpu_env, arg);
             rn = "SRSConf4";
+            break;
+        case 6:
+            check_pw(ctx);
+            gen_helper_mtc0_pwctl(cpu_env, arg);
+            rn = "PWCtl";
             break;
         default:
             goto cp0_unimplemented;
@@ -14999,15 +16218,15 @@ static void decode_micromips32_opc(CPUMIPSState *env, DisasContext *ctx)
             case 0x38:
                 /* cmovs */
                 switch ((ctx->opcode >> 6) & 0x7) {
-                case MOVN_FMT: /* SELNEZ_FMT */
+                case MOVN_FMT: /* SELEQZ_FMT */
                     if (ctx->insn_flags & ISA_MIPS32R6) {
-                        /* SELNEZ_FMT */
+                        /* SELEQZ_FMT */
                         switch ((ctx->opcode >> 9) & 0x3) {
                         case FMT_SDPS_S:
-                            gen_sel_s(ctx, OPC_SELNEZ_S, rd, rt, rs);
+                            gen_sel_s(ctx, OPC_SELEQZ_S, rd, rt, rs);
                             break;
                         case FMT_SDPS_D:
-                            gen_sel_d(ctx, OPC_SELNEZ_D, rd, rt, rs);
+                            gen_sel_d(ctx, OPC_SELEQZ_D, rd, rt, rs);
                             break;
                         default:
                             goto pool32f_invalid;
@@ -15021,15 +16240,15 @@ static void decode_micromips32_opc(CPUMIPSState *env, DisasContext *ctx)
                     check_insn_opc_removed(ctx, ISA_MIPS32R6);
                     FINSN_3ARG_SDPS(MOVN);
                     break;
-                case MOVZ_FMT: /* SELEQZ_FMT */
+                case MOVZ_FMT: /* SELNEZ_FMT */
                     if (ctx->insn_flags & ISA_MIPS32R6) {
-                        /* SELEQZ_FMT */
+                        /* SELNEZ_FMT */
                         switch ((ctx->opcode >> 9) & 0x3) {
                         case FMT_SDPS_S:
-                            gen_sel_s(ctx, OPC_SELEQZ_S, rd, rt, rs);
+                            gen_sel_s(ctx, OPC_SELNEZ_S, rd, rt, rs);
                             break;
                         case FMT_SDPS_D:
-                            gen_sel_d(ctx, OPC_SELEQZ_D, rd, rt, rs);
+                            gen_sel_d(ctx, OPC_SELNEZ_D, rd, rt, rs);
                             break;
                         default:
                             goto pool32f_invalid;
@@ -16285,6 +17504,16 @@ enum {
     NM_SOV      = 0x7a,
 };
 
+/* CRC32 instruction pool */
+enum {
+    NM_CRC32B   = 0x00,
+    NM_CRC32H   = 0x01,
+    NM_CRC32W   = 0x02,
+    NM_CRC32CB  = 0x04,
+    NM_CRC32CH  = 0x05,
+    NM_CRC32CW  = 0x06,
+};
+
 /* POOL32A5 instruction pool */
 enum {
     NM_CMP_EQ_PH        = 0x00,
@@ -16486,6 +17715,40 @@ enum {
     NM_CACHE     = 0x07,
     NM_P_LL      = 0x0a,
     NM_P_SC      = 0x0b,
+};
+
+/* P.LS.E0 instruction pool */
+enum {
+    NM_LBE      = 0x00,
+    NM_SBE      = 0x01,
+    NM_LBUE     = 0x02,
+    NM_P_PREFE  = 0x03,
+    NM_LHE      = 0x04,
+    NM_SHE      = 0x05,
+    NM_LHUE     = 0x06,
+    NM_CACHEE   = 0x07,
+    NM_LWE      = 0x08,
+    NM_SWE      = 0x09,
+    NM_P_LLE    = 0x0a,
+    NM_P_SCE    = 0x0b,
+};
+
+/* P.PREFE instruction pool */
+enum {
+    NM_SYNCIE   = 0x00,
+    NM_PREFE    = 0x01,
+};
+
+/* P.LLE instruction pool */
+enum {
+    NM_LLE      = 0x00,
+    NM_LLWPE    = 0x01,
+};
+
+/* P.SCE instruction pool */
+enum {
+    NM_SCE      = 0x00,
+    NM_SCWPE    = 0x01,
 };
 
 /* P.LS.WM instruction pool */
@@ -17444,7 +18707,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
     case NM_POOL32AXF_2_0_7:
         switch (extract32(ctx->opcode, 9, 3)) {
         case NM_DPA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpa_w_ph(t0, v1, v0, cpu_env);
             break;
         case NM_DPAQ_S_W_PH:
@@ -17452,7 +18715,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
             gen_helper_dpaq_s_w_ph(t0, v1, v0, cpu_env);
             break;
         case NM_DPS_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dps_w_ph(t0, v1, v0, cpu_env);
             break;
         case NM_DPSQ_S_W_PH:
@@ -17467,7 +18730,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
     case NM_POOL32AXF_2_8_15:
         switch (extract32(ctx->opcode, 9, 3)) {
         case NM_DPAX_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpax_w_ph(t0, v0, v1, cpu_env);
             break;
         case NM_DPAQ_SA_L_W:
@@ -17475,7 +18738,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
             gen_helper_dpaq_sa_l_w(t0, v0, v1, cpu_env);
             break;
         case NM_DPSX_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpsx_w_ph(t0, v0, v1, cpu_env);
             break;
         case NM_DPSQ_SA_L_W:
@@ -17494,7 +18757,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
             gen_helper_dpau_h_qbl(t0, v0, v1, cpu_env);
             break;
         case NM_DPAQX_S_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpaqx_s_w_ph(t0, v0, v1, cpu_env);
             break;
         case NM_DPSU_H_QBL:
@@ -17502,11 +18765,11 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
             gen_helper_dpsu_h_qbl(t0, v0, v1, cpu_env);
             break;
         case NM_DPSQX_S_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpsqx_s_w_ph(t0, v0, v1, cpu_env);
             break;
         case NM_MULSA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_mulsa_w_ph(t0, v0, v1, cpu_env);
             break;
         default:
@@ -17521,7 +18784,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
             gen_helper_dpau_h_qbr(t0, v1, v0, cpu_env);
             break;
         case NM_DPAQX_SA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpaqx_sa_w_ph(t0, v1, v0, cpu_env);
             break;
         case NM_DPSU_H_QBR:
@@ -17529,7 +18792,7 @@ static void gen_pool32axf_2_multiply(DisasContext *ctx, uint32_t opc,
             gen_helper_dpsu_h_qbr(t0, v1, v0, cpu_env);
             break;
         case NM_DPSQX_SA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpsqx_sa_w_ph(t0, v1, v0, cpu_env);
             break;
         case NM_MULSAQ_S_W_PH:
@@ -17571,7 +18834,7 @@ static void gen_pool32axf_2_nanomips_insn(DisasContext *ctx, uint32_t opc,
             gen_pool32axf_2_multiply(ctx, opc, v0_t, v1_t, rd);
             break;
         case NM_BALIGN:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             if (rt != 0) {
                 gen_load_gpr(t0, rs);
                 rd &= 3;
@@ -17801,7 +19064,7 @@ static void gen_pool32axf_4_nanomips_insn(DisasContext *ctx, uint32_t opc,
 
     switch (opc) {
     case NM_ABSQ_S_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_absq_s_qb(v0_t, v0_t, cpu_env);
         gen_store_gpr(v0_t, ret);
         break;
@@ -17940,7 +19203,7 @@ static void gen_pool32axf_7_nanomips_insn(DisasContext *ctx, uint32_t opc,
 
     switch (opc) {
     case NM_SHRA_R_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         tcg_gen_movi_tl(t0, rd >> 2);
         switch (extract32(ctx->opcode, 12, 1)) {
         case 0:
@@ -17956,7 +19219,7 @@ static void gen_pool32axf_7_nanomips_insn(DisasContext *ctx, uint32_t opc,
         }
         break;
     case NM_SHRL_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         tcg_gen_movi_tl(t0, rd >> 1);
         gen_helper_shrl_ph(t0, t0, rs_t);
         gen_store_gpr(t0, rt);
@@ -18881,19 +20144,19 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         gen_store_gpr(v1_t, ret);
         break;
     case NM_CMPGDU_EQ_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_cmpgu_eq_qb(v1_t, v1_t, v2_t);
         tcg_gen_deposit_tl(cpu_dspctrl, cpu_dspctrl, v1_t, 24, 4);
         gen_store_gpr(v1_t, ret);
         break;
     case NM_CMPGDU_LT_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_cmpgu_lt_qb(v1_t, v1_t, v2_t);
         tcg_gen_deposit_tl(cpu_dspctrl, cpu_dspctrl, v1_t, 24, 4);
         gen_store_gpr(v1_t, ret);
         break;
     case NM_CMPGDU_LE_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_cmpgu_le_qb(v1_t, v1_t, v2_t);
         tcg_gen_deposit_tl(cpu_dspctrl, cpu_dspctrl, v1_t, 24, 4);
         gen_store_gpr(v1_t, ret);
@@ -18949,7 +20212,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_ADDQH_R_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* ADDQH_PH */
@@ -18964,7 +20227,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_ADDQH_R_W:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* ADDQH_W */
@@ -18994,7 +20257,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_ADDU_S_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* ADDU_PH */
@@ -19009,7 +20272,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_ADDUH_R_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* ADDUH_QB */
@@ -19039,7 +20302,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_SHRAV_R_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* SHRAV_QB */
@@ -19069,7 +20332,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_SUBQH_R_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* SUBQH_PH */
@@ -19084,7 +20347,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_SUBQH_R_W:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* SUBQH_W */
@@ -19114,7 +20377,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_SUBU_S_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* SUBU_PH */
@@ -19129,7 +20392,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_SUBUH_R_QB:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* SUBUH_QB */
@@ -19159,7 +20422,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_PRECR_SRA_R_PH_W:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* PRECR_SRA_PH_W */
@@ -19199,22 +20462,22 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         gen_store_gpr(v1_t, ret);
         break;
     case NM_MULQ_S_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_mulq_s_ph(v1_t, v1_t, v2_t, cpu_env);
         gen_store_gpr(v1_t, ret);
         break;
     case NM_MULQ_RS_W:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_mulq_rs_w(v1_t, v1_t, v2_t, cpu_env);
         gen_store_gpr(v1_t, ret);
         break;
     case NM_MULQ_S_W:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_mulq_s_w(v1_t, v1_t, v2_t, cpu_env);
         gen_store_gpr(v1_t, ret);
         break;
     case NM_APPEND:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_load_gpr(t0, rs);
         if (rd != 0) {
             tcg_gen_deposit_tl(cpu_gpr[rt], t0, cpu_gpr[rt], rd, 32 - rd);
@@ -19232,7 +20495,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         gen_store_gpr(v1_t, ret);
         break;
     case NM_SHRLV_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_shrl_ph(v1_t, v1_t, v2_t);
         gen_store_gpr(v1_t, ret);
         break;
@@ -19274,7 +20537,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         gen_store_gpr(v1_t, ret);
         break;
     case NM_MUL_S_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (extract32(ctx->opcode, 10, 1)) {
         case 0:
             /* MUL_PH */
@@ -19289,7 +20552,7 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         }
         break;
     case NM_PRECR_QB_PH:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         gen_helper_precr_qb_ph(v1_t, v1_t, v2_t);
         gen_store_gpr(v1_t, ret);
         break;
@@ -19326,8 +20589,8 @@ static void gen_pool32a5_nanomips_insn(DisasContext *ctx, int opc,
         case 0:
             /* SHRA_PH */
             gen_helper_shra_ph(v1_t, t0, v1_t);
-            break;
             gen_store_gpr(v1_t, rt);
+            break;
         case 1:
             /* SHRA_R_PH */
             gen_helper_shra_r_ph(v1_t, t0, v1_t);
@@ -19984,6 +21247,105 @@ static int decode_nanomips_32_48_opc(CPUMIPSState *env, DisasContext *ctx)
                     break;
                 }
                 break;
+            case NM_P_LS_E0:
+                switch (extract32(ctx->opcode, 11, 4)) {
+                case NM_LBE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_ld(ctx, OPC_LBE, rt, rs, s);
+                    break;
+                case NM_SBE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_st(ctx, OPC_SBE, rt, rs, s);
+                    break;
+                case NM_LBUE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_ld(ctx, OPC_LBUE, rt, rs, s);
+                    break;
+                case NM_P_PREFE:
+                    if (rt == 31) {
+                        /* case NM_SYNCIE */
+                        check_eva(ctx);
+                        check_cp0_enabled(ctx);
+                        /* Break the TB to be able to sync copied instructions
+                           immediately */
+                        ctx->base.is_jmp = DISAS_STOP;
+                    } else {
+                        /* case NM_PREFE */
+                        check_eva(ctx);
+                        check_cp0_enabled(ctx);
+                        /* Treat as NOP. */
+                    }
+                    break;
+                case NM_LHE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_ld(ctx, OPC_LHE, rt, rs, s);
+                    break;
+                case NM_SHE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_st(ctx, OPC_SHE, rt, rs, s);
+                    break;
+                case NM_LHUE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_ld(ctx, OPC_LHUE, rt, rs, s);
+                    break;
+                case NM_CACHEE:
+                    check_nms_dl_il_sl_tl_l2c(ctx);
+                    gen_cache_operation(ctx, rt, rs, s);
+                    break;
+                case NM_LWE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_ld(ctx, OPC_LWE, rt, rs, s);
+                    break;
+                case NM_SWE:
+                    check_eva(ctx);
+                    check_cp0_enabled(ctx);
+                    gen_st(ctx, OPC_SWE, rt, rs, s);
+                    break;
+                case NM_P_LLE:
+                    switch (extract32(ctx->opcode, 2, 2)) {
+                    case NM_LLE:
+                        check_xnp(ctx);
+                        check_eva(ctx);
+                        check_cp0_enabled(ctx);
+                        gen_ld(ctx, OPC_LLE, rt, rs, s);
+                        break;
+                    case NM_LLWPE:
+                        check_xnp(ctx);
+                        check_eva(ctx);
+                        check_cp0_enabled(ctx);
+                        gen_llwp(ctx, rs, 0, rt, extract32(ctx->opcode, 3, 5));
+                    default:
+                        generate_exception_end(ctx, EXCP_RI);
+                        break;
+                    }
+                    break;
+                case NM_P_SCE:
+                    switch (extract32(ctx->opcode, 2, 2)) {
+                    case NM_SCE:
+                        check_xnp(ctx);
+                        check_eva(ctx);
+                        check_cp0_enabled(ctx);
+                        gen_st_cond(ctx, OPC_SCE, rt, rs, s);
+                        break;
+                    case NM_SCWPE:
+                        check_xnp(ctx);
+                        check_eva(ctx);
+                        check_cp0_enabled(ctx);
+                        gen_scwp(ctx, rs, 0, rt, extract32(ctx->opcode, 3, 5));
+                    default:
+                        generate_exception_end(ctx, EXCP_RI);
+                        break;
+                    }
+                    break;
+                }
+                break;
             case NM_P_LS_WM:
             case NM_P_LS_UAWM:
                 check_nms(ctx);
@@ -20098,7 +21460,7 @@ static int decode_nanomips_32_48_opc(CPUMIPSState *env, DisasContext *ctx)
                     gen_compute_branch_cp1_nm(ctx, OPC_BC1NEZ, rt, s);
                     break;
                 case NM_BPOSGE32C:
-                    check_dspr2(ctx);
+                    check_dsp_r3(ctx);
                     {
                         int32_t imm = extract32(ctx->opcode, 1, 13) |
                                       extract32(ctx->opcode, 0, 1) << 13;
@@ -20607,7 +21969,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
     switch (op1) {
     /* OPC_MULT_G_2E is equal OPC_ADDUH_QB_DSP */
     case OPC_MULT_G_2E:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (op2) {
         case OPC_ADDUH_QB:
             gen_helper_adduh_qb(cpu_gpr[ret], v1_t, v2_t);
@@ -20650,7 +22012,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
     case OPC_ABSQ_S_PH_DSP:
         switch (op2) {
         case OPC_ABSQ_S_QB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_absq_s_qb(cpu_gpr[ret], v2_t, cpu_env);
             break;
         case OPC_ABSQ_S_PH:
@@ -20729,11 +22091,11 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_addu_s_qb(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_ADDU_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_addu_ph(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_ADDU_S_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_addu_s_ph(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_SUBQ_PH:
@@ -20757,11 +22119,11 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_subu_s_qb(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_SUBU_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_subu_ph(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_SUBU_S_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_subu_s_ph(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_ADDSC:
@@ -20785,7 +22147,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
     case OPC_CMPU_EQ_QB_DSP:
         switch (op2) {
         case OPC_PRECR_QB_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_precr_qb_ph(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_PRECRQ_QB_PH:
@@ -20793,7 +22155,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_precrq_qb_ph(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_PRECR_SRA_PH_W:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             {
                 TCGv_i32 sa_t = tcg_const_i32(v2);
                 gen_helper_precr_sra_ph_w(cpu_gpr[ret], sa_t, v1_t,
@@ -20802,7 +22164,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
                 break;
             }
         case OPC_PRECR_SRA_R_PH_W:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             {
                 TCGv_i32 sa_t = tcg_const_i32(v2);
                 gen_helper_precr_sra_r_ph_w(cpu_gpr[ret], sa_t, v1_t,
@@ -20884,7 +22246,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_preceu_qh_obra(cpu_gpr[ret], v2_t);
             break;
         case OPC_ABSQ_S_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_absq_s_ob(cpu_gpr[ret], v2_t, cpu_env);
             break;
         case OPC_ABSQ_S_PW:
@@ -20928,19 +22290,19 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_subu_s_ob(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_SUBU_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_subu_qh(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_SUBU_S_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_subu_s_qh(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_SUBUH_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_subuh_ob(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_SUBUH_R_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_subuh_r_ob(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_ADDQ_PW:
@@ -20968,19 +22330,19 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_addu_s_ob(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_ADDU_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_addu_qh(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_ADDU_S_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_addu_s_qh(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_ADDUH_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_adduh_ob(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_ADDUH_R_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_adduh_r_ob(cpu_gpr[ret], v1_t, v2_t);
             break;
         }
@@ -20988,11 +22350,11 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
     case OPC_CMPU_EQ_OB_DSP:
         switch (op2) {
         case OPC_PRECR_OB_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_precr_ob_qh(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_PRECR_SRA_QH_PW:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             {
                 TCGv_i32 ret_t = tcg_const_i32(ret);
                 gen_helper_precr_sra_qh_pw(v2_t, v1_t, v2_t, ret_t);
@@ -21000,7 +22362,7 @@ static void gen_mipsdsp_arith(DisasContext *ctx, uint32_t op1, uint32_t op2,
                 break;
             }
         case OPC_PRECR_SRA_R_QH_PW:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             {
                 TCGv_i32 sa_v = tcg_const_i32(ret);
                 gen_helper_precr_sra_r_qh_pw(v2_t, v1_t, v2_t, sa_v);
@@ -21103,27 +22465,27 @@ static void gen_mipsdsp_shift(DisasContext *ctx, uint32_t opc,
                 gen_helper_shrl_qb(cpu_gpr[ret], v1_t, v2_t);
                 break;
             case OPC_SHRL_PH:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_shrl_ph(cpu_gpr[ret], t0, v2_t);
                 break;
             case OPC_SHRLV_PH:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_shrl_ph(cpu_gpr[ret], v1_t, v2_t);
                 break;
             case OPC_SHRA_QB:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_shra_qb(cpu_gpr[ret], t0, v2_t);
                 break;
             case OPC_SHRA_R_QB:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_shra_r_qb(cpu_gpr[ret], t0, v2_t);
                 break;
             case OPC_SHRAV_QB:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_shra_qb(cpu_gpr[ret], v1_t, v2_t);
                 break;
             case OPC_SHRAV_R_QB:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_shra_r_qb(cpu_gpr[ret], v1_t, v2_t);
                 break;
             case OPC_SHRA_PH:
@@ -21202,19 +22564,19 @@ static void gen_mipsdsp_shift(DisasContext *ctx, uint32_t opc,
             gen_helper_shll_s_qh(cpu_gpr[ret], v2_t, v1_t, cpu_env);
             break;
         case OPC_SHRA_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_shra_ob(cpu_gpr[ret], v2_t, t0);
             break;
         case OPC_SHRAV_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_shra_ob(cpu_gpr[ret], v2_t, v1_t);
             break;
         case OPC_SHRA_R_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_shra_r_ob(cpu_gpr[ret], v2_t, t0);
             break;
         case OPC_SHRAV_R_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_shra_r_ob(cpu_gpr[ret], v2_t, v1_t);
             break;
         case OPC_SHRA_PW:
@@ -21258,11 +22620,11 @@ static void gen_mipsdsp_shift(DisasContext *ctx, uint32_t opc,
             gen_helper_shrl_ob(cpu_gpr[ret], v2_t, v1_t);
             break;
         case OPC_SHRL_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_shrl_qh(cpu_gpr[ret], v2_t, t0);
             break;
         case OPC_SHRLV_QH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_shrl_qh(cpu_gpr[ret], v2_t, v1_t);
             break;
         default:            /* Invalid */
@@ -21303,7 +22665,7 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
     /* OPC_MULT_G_2E, OPC_ADDUH_QB_DSP, OPC_MUL_PH_DSP have
      * the same mask and op1. */
     case OPC_MULT_G_2E:
-        check_dspr2(ctx);
+        check_dsp_r2(ctx);
         switch (op2) {
         case  OPC_MUL_PH:
             gen_helper_mul_ph(cpu_gpr[ret], v1_t, v2_t, cpu_env);
@@ -21338,11 +22700,11 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_dpsu_h_qbr(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpa_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPAX_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpax_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPAQ_S_W_PH:
@@ -21350,19 +22712,19 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_dpaq_s_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPAQX_S_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpaqx_s_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPAQX_SA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpaqx_sa_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPS_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dps_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPSX_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpsx_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPSQ_S_W_PH:
@@ -21370,11 +22732,11 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_dpsq_s_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPSQX_S_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpsqx_s_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_DPSQX_SA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_dpsqx_sa_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_MULSAQ_S_W_PH:
@@ -21406,7 +22768,7 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_maq_sa_w_phr(t0, v1_t, v2_t, cpu_env);
             break;
         case OPC_MULSA_W_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_mulsa_w_ph(t0, v1_t, v2_t, cpu_env);
             break;
         }
@@ -21435,7 +22797,7 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
                 gen_helper_dmsubu(v1_t, v2_t, t0, cpu_env);
                 break;
             case OPC_DPA_W_QH:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_dpa_w_qh(v1_t, v2_t, t0, cpu_env);
                 break;
             case OPC_DPAQ_S_W_QH:
@@ -21455,7 +22817,7 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
                 gen_helper_dpau_h_obr(v1_t, v2_t, t0, cpu_env);
                 break;
             case OPC_DPS_W_QH:
-                check_dspr2(ctx);
+                check_dsp_r2(ctx);
                 gen_helper_dps_w_qh(v1_t, v2_t, t0, cpu_env);
                 break;
             case OPC_DPSQ_S_W_QH:
@@ -21549,7 +22911,7 @@ static void gen_mipsdsp_multiply(DisasContext *ctx, uint32_t op1, uint32_t op2,
             gen_helper_muleq_s_w_phr(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_MULQ_S_PH:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_mulq_s_ph(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         }
@@ -21773,7 +23135,7 @@ static void gen_mipsdsp_add_cmp_pick(DisasContext *ctx,
             gen_helper_cmpgu_le_qb(cpu_gpr[ret], v1_t, v2_t);
             break;
         case OPC_CMPGDU_EQ_QB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_cmpgu_eq_qb(t1, v1_t, v2_t);
             tcg_gen_mov_tl(cpu_gpr[ret], t1);
             tcg_gen_andi_tl(cpu_dspctrl, cpu_dspctrl, 0xF0FFFFFF);
@@ -21781,7 +23143,7 @@ static void gen_mipsdsp_add_cmp_pick(DisasContext *ctx,
             tcg_gen_or_tl(cpu_dspctrl, cpu_dspctrl, t1);
             break;
         case OPC_CMPGDU_LT_QB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_cmpgu_lt_qb(t1, v1_t, v2_t);
             tcg_gen_mov_tl(cpu_gpr[ret], t1);
             tcg_gen_andi_tl(cpu_dspctrl, cpu_dspctrl, 0xF0FFFFFF);
@@ -21789,7 +23151,7 @@ static void gen_mipsdsp_add_cmp_pick(DisasContext *ctx,
             tcg_gen_or_tl(cpu_dspctrl, cpu_dspctrl, t1);
             break;
         case OPC_CMPGDU_LE_QB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_cmpgu_le_qb(t1, v1_t, v2_t);
             tcg_gen_mov_tl(cpu_gpr[ret], t1);
             tcg_gen_andi_tl(cpu_dspctrl, cpu_dspctrl, 0xF0FFFFFF);
@@ -21850,15 +23212,15 @@ static void gen_mipsdsp_add_cmp_pick(DisasContext *ctx,
             gen_helper_cmp_le_qh(v1_t, v2_t, cpu_env);
             break;
         case OPC_CMPGDU_EQ_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_cmpgdu_eq_ob(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_CMPGDU_LT_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_cmpgdu_lt_ob(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_CMPGDU_LE_OB:
-            check_dspr2(ctx);
+            check_dsp_r2(ctx);
             gen_helper_cmpgdu_le_ob(cpu_gpr[ret], v1_t, v2_t, cpu_env);
             break;
         case OPC_CMPGU_EQ_OB:
@@ -21916,7 +23278,7 @@ static void gen_mipsdsp_append(CPUMIPSState *env, DisasContext *ctx,
 {
     TCGv t0;
 
-    check_dspr2(ctx);
+    check_dsp_r2(ctx);
 
     if (rt == 0) {
         /* Treat as NOP. */
@@ -22351,7 +23713,7 @@ static void decode_opc_special_legacy(CPUMIPSState *env, DisasContext *ctx)
     case OPC_MOVN:         /* Conditional move */
     case OPC_MOVZ:
         check_insn(ctx, ISA_MIPS4 | ISA_MIPS32 |
-                   INSN_LOONGSON2E | INSN_LOONGSON2F);
+                   INSN_LOONGSON2E | INSN_LOONGSON2F | INSN_R5900);
         gen_cond_move(ctx, op1, rd, rs, rt);
         break;
     case OPC_MFHI:          /* Move from HI/LO */
@@ -22378,6 +23740,8 @@ static void decode_opc_special_legacy(CPUMIPSState *env, DisasContext *ctx)
             check_insn(ctx, INSN_VR54XX);
             op1 = MASK_MUL_VR54XX(ctx->opcode);
             gen_mul_vr54xx(ctx, op1, rd, rs, rt);
+        } else if (ctx->insn_flags & INSN_R5900) {
+            gen_mul_txx9(ctx, op1, rd, rs, rt);
         } else {
             gen_muldiv(ctx, op1, rd & 3, rs, rt);
         }
@@ -22392,6 +23756,7 @@ static void decode_opc_special_legacy(CPUMIPSState *env, DisasContext *ctx)
     case OPC_DDIV:
     case OPC_DDIVU:
         check_insn(ctx, ISA_MIPS3);
+        check_insn_opc_user_only(ctx, INSN_R5900);
         check_mips_64(ctx);
         gen_muldiv(ctx, op1, 0, rs, rt);
         break;
@@ -22738,7 +24103,9 @@ static void decode_opc_special3_r6(CPUMIPSState *env, DisasContext *ctx)
             op2 = MASK_BSHFL(ctx->opcode);
             switch (op2) {
             case OPC_ALIGN:
-            case OPC_ALIGN_END:
+            case OPC_ALIGN_1:
+            case OPC_ALIGN_2:
+            case OPC_ALIGN_3:
                 gen_align(ctx, 32, rd, rs, rt, sa & 3);
                 break;
             case OPC_BITSWAP:
@@ -22764,7 +24131,13 @@ static void decode_opc_special3_r6(CPUMIPSState *env, DisasContext *ctx)
             op2 = MASK_DBSHFL(ctx->opcode);
             switch (op2) {
             case OPC_DALIGN:
-            case OPC_DALIGN_END:
+            case OPC_DALIGN_1:
+            case OPC_DALIGN_2:
+            case OPC_DALIGN_3:
+            case OPC_DALIGN_4:
+            case OPC_DALIGN_5:
+            case OPC_DALIGN_6:
+            case OPC_DALIGN_7:
                 gen_align(ctx, 64, rd, rs, rt, sa & 7);
                 break;
             case OPC_DBITSWAP:
@@ -22801,7 +24174,7 @@ static void decode_opc_special3_legacy(CPUMIPSState *env, DisasContext *ctx)
     case OPC_MULTU_G_2E:
         /* OPC_MULT_G_2E, OPC_ADDUH_QB_DSP, OPC_MUL_PH_DSP have
          * the same mask and op1. */
-        if ((ctx->insn_flags & ASE_DSPR2) && (op1 == OPC_MULT_G_2E)) {
+        if ((ctx->insn_flags & ASE_DSP_R2) && (op1 == OPC_MULT_G_2E)) {
             op2 = MASK_ADDUH_QB(ctx->opcode);
             switch (op2) {
             case OPC_ADDUH_QB:
@@ -23308,6 +24681,250 @@ static void decode_opc_special3_legacy(CPUMIPSState *env, DisasContext *ctx)
     }
 }
 
+static void decode_tx79_mmi0(CPUMIPSState *env, DisasContext *ctx)
+{
+    uint32_t opc = MASK_TX79_MMI0(ctx->opcode);
+
+    switch (opc) {
+    case TX79_MMI0_PADDW:     /* TODO: TX79_MMI0_PADDW */
+    case TX79_MMI0_PSUBW:     /* TODO: TX79_MMI0_PSUBW */
+    case TX79_MMI0_PCGTW:     /* TODO: TX79_MMI0_PCGTW */
+    case TX79_MMI0_PMAXW:     /* TODO: TX79_MMI0_PMAXW */
+    case TX79_MMI0_PADDH:     /* TODO: TX79_MMI0_PADDH */
+    case TX79_MMI0_PSUBH:     /* TODO: TX79_MMI0_PSUBH */
+    case TX79_MMI0_PCGTH:     /* TODO: TX79_MMI0_PCGTH */
+    case TX79_MMI0_PMAXH:     /* TODO: TX79_MMI0_PMAXH */
+    case TX79_MMI0_PADDB:     /* TODO: TX79_MMI0_PADDB */
+    case TX79_MMI0_PSUBB:     /* TODO: TX79_MMI0_PSUBB */
+    case TX79_MMI0_PCGTB:     /* TODO: TX79_MMI0_PCGTB */
+    case TX79_MMI0_PADDSW:    /* TODO: TX79_MMI0_PADDSW */
+    case TX79_MMI0_PSUBSW:    /* TODO: TX79_MMI0_PSUBSW */
+    case TX79_MMI0_PEXTLW:    /* TODO: TX79_MMI0_PEXTLW */
+    case TX79_MMI0_PPACW:     /* TODO: TX79_MMI0_PPACW */
+    case TX79_MMI0_PADDSH:    /* TODO: TX79_MMI0_PADDSH */
+    case TX79_MMI0_PSUBSH:    /* TODO: TX79_MMI0_PSUBSH */
+    case TX79_MMI0_PEXTLH:    /* TODO: TX79_MMI0_PEXTLH */
+    case TX79_MMI0_PPACH:     /* TODO: TX79_MMI0_PPACH */
+    case TX79_MMI0_PADDSB:    /* TODO: TX79_MMI0_PADDSB */
+    case TX79_MMI0_PSUBSB:    /* TODO: TX79_MMI0_PSUBSB */
+    case TX79_MMI0_PEXTLB:    /* TODO: TX79_MMI0_PEXTLB */
+    case TX79_MMI0_PPACB:     /* TODO: TX79_MMI0_PPACB */
+    case TX79_MMI0_PEXT5:     /* TODO: TX79_MMI0_PEXT5 */
+    case TX79_MMI0_PPAC5:     /* TODO: TX79_MMI0_PPAC5 */
+        generate_exception_end(ctx, EXCP_RI); /* TODO: TX79_MMI_CLASS_MMI0 */
+        break;
+    default:
+        MIPS_INVAL("TX79 MMI class MMI0");
+        generate_exception_end(ctx, EXCP_RI);
+        break;
+    }
+}
+
+static void decode_tx79_mmi1(CPUMIPSState *env, DisasContext *ctx)
+{
+    uint32_t opc = MASK_TX79_MMI1(ctx->opcode);
+
+    switch (opc) {
+    case TX79_MMI1_PABSW:     /* TODO: TX79_MMI1_PABSW */
+    case TX79_MMI1_PCEQW:     /* TODO: TX79_MMI1_PCEQW */
+    case TX79_MMI1_PMINW:     /* TODO: TX79_MMI1_PMINW */
+    case TX79_MMI1_PADSBH:    /* TODO: TX79_MMI1_PADSBH */
+    case TX79_MMI1_PABSH:     /* TODO: TX79_MMI1_PABSH */
+    case TX79_MMI1_PCEQH:     /* TODO: TX79_MMI1_PCEQH */
+    case TX79_MMI1_PMINH:     /* TODO: TX79_MMI1_PMINH */
+    case TX79_MMI1_PCEQB:     /* TODO: TX79_MMI1_PCEQB */
+    case TX79_MMI1_PADDUW:    /* TODO: TX79_MMI1_PADDUW */
+    case TX79_MMI1_PSUBUW:    /* TODO: TX79_MMI1_PSUBUW */
+    case TX79_MMI1_PEXTUW:    /* TODO: TX79_MMI1_PEXTUW */
+    case TX79_MMI1_PADDUH:    /* TODO: TX79_MMI1_PADDUH */
+    case TX79_MMI1_PSUBUH:    /* TODO: TX79_MMI1_PSUBUH */
+    case TX79_MMI1_PEXTUH:    /* TODO: TX79_MMI1_PEXTUH */
+    case TX79_MMI1_PADDUB:    /* TODO: TX79_MMI1_PADDUB */
+    case TX79_MMI1_PSUBUB:    /* TODO: TX79_MMI1_PSUBUB */
+    case TX79_MMI1_PEXTUB:    /* TODO: TX79_MMI1_PEXTUB */
+    case TX79_MMI1_QFSRV:     /* TODO: TX79_MMI1_QFSRV */
+        generate_exception_end(ctx, EXCP_RI); /* TODO: TX79_MMI_CLASS_MMI1 */
+        break;
+    default:
+        MIPS_INVAL("TX79 MMI class MMI1");
+        generate_exception_end(ctx, EXCP_RI);
+        break;
+    }
+}
+
+static void decode_tx79_mmi2(CPUMIPSState *env, DisasContext *ctx)
+{
+    uint32_t opc = MASK_TX79_MMI2(ctx->opcode);
+
+    switch (opc) {
+    case TX79_MMI2_PMADDW:    /* TODO: TX79_MMI2_PMADDW */
+    case TX79_MMI2_PSLLVW:    /* TODO: TX79_MMI2_PSLLVW */
+    case TX79_MMI2_PSRLVW:    /* TODO: TX79_MMI2_PSRLVW */
+    case TX79_MMI2_PMSUBW:    /* TODO: TX79_MMI2_PMSUBW */
+    case TX79_MMI2_PMFHI:     /* TODO: TX79_MMI2_PMFHI */
+    case TX79_MMI2_PMFLO:     /* TODO: TX79_MMI2_PMFLO */
+    case TX79_MMI2_PINTH:     /* TODO: TX79_MMI2_PINTH */
+    case TX79_MMI2_PMULTW:    /* TODO: TX79_MMI2_PMULTW */
+    case TX79_MMI2_PDIVW:     /* TODO: TX79_MMI2_PDIVW */
+    case TX79_MMI2_PCPYLD:    /* TODO: TX79_MMI2_PCPYLD */
+    case TX79_MMI2_PMADDH:    /* TODO: TX79_MMI2_PMADDH */
+    case TX79_MMI2_PHMADH:    /* TODO: TX79_MMI2_PHMADH */
+    case TX79_MMI2_PAND:      /* TODO: TX79_MMI2_PAND */
+    case TX79_MMI2_PXOR:      /* TODO: TX79_MMI2_PXOR */
+    case TX79_MMI2_PMSUBH:    /* TODO: TX79_MMI2_PMSUBH */
+    case TX79_MMI2_PHMSBH:    /* TODO: TX79_MMI2_PHMSBH */
+    case TX79_MMI2_PEXEH:     /* TODO: TX79_MMI2_PEXEH */
+    case TX79_MMI2_PREVH:     /* TODO: TX79_MMI2_PREVH */
+    case TX79_MMI2_PMULTH:    /* TODO: TX79_MMI2_PMULTH */
+    case TX79_MMI2_PDIVBW:    /* TODO: TX79_MMI2_PDIVBW */
+    case TX79_MMI2_PEXEW:     /* TODO: TX79_MMI2_PEXEW */
+    case TX79_MMI2_PROT3W:    /* TODO: TX79_MMI2_PROT3W */
+        generate_exception_end(ctx, EXCP_RI); /* TODO: TX79_MMI_CLASS_MMI2 */
+        break;
+    default:
+        MIPS_INVAL("TX79 MMI class MMI2");
+        generate_exception_end(ctx, EXCP_RI);
+        break;
+    }
+}
+
+static void decode_tx79_mmi3(CPUMIPSState *env, DisasContext *ctx)
+{
+    uint32_t opc = MASK_TX79_MMI3(ctx->opcode);
+
+    switch (opc) {
+    case TX79_MMI3_PMADDUW:    /* TODO: TX79_MMI3_PMADDUW */
+    case TX79_MMI3_PSRAVW:     /* TODO: TX79_MMI3_PSRAVW */
+    case TX79_MMI3_PMTHI:      /* TODO: TX79_MMI3_PMTHI */
+    case TX79_MMI3_PMTLO:      /* TODO: TX79_MMI3_PMTLO */
+    case TX79_MMI3_PINTEH:     /* TODO: TX79_MMI3_PINTEH */
+    case TX79_MMI3_PMULTUW:    /* TODO: TX79_MMI3_PMULTUW */
+    case TX79_MMI3_PDIVUW:     /* TODO: TX79_MMI3_PDIVUW */
+    case TX79_MMI3_PCPYUD:     /* TODO: TX79_MMI3_PCPYUD */
+    case TX79_MMI3_POR:        /* TODO: TX79_MMI3_POR */
+    case TX79_MMI3_PNOR:       /* TODO: TX79_MMI3_PNOR */
+    case TX79_MMI3_PEXCH:      /* TODO: TX79_MMI3_PEXCH */
+    case TX79_MMI3_PCPYH:      /* TODO: TX79_MMI3_PCPYH */
+    case TX79_MMI3_PEXCW:      /* TODO: TX79_MMI3_PEXCW */
+        generate_exception_end(ctx, EXCP_RI); /* TODO: TX79_MMI_CLASS_MMI3 */
+        break;
+    default:
+        MIPS_INVAL("TX79 MMI class MMI3");
+        generate_exception_end(ctx, EXCP_RI);
+        break;
+    }
+}
+
+static void decode_tx79_mmi(CPUMIPSState *env, DisasContext *ctx)
+{
+    uint32_t opc = MASK_TX79_MMI(ctx->opcode);
+    int rs = extract32(ctx->opcode, 21, 5);
+    int rt = extract32(ctx->opcode, 16, 5);
+    int rd = extract32(ctx->opcode, 11, 5);
+
+    switch (opc) {
+    case TX79_MMI_CLASS_MMI0:
+        decode_tx79_mmi0(env, ctx);
+        break;
+    case TX79_MMI_CLASS_MMI1:
+        decode_tx79_mmi1(env, ctx);
+        break;
+    case TX79_MMI_CLASS_MMI2:
+        decode_tx79_mmi2(env, ctx);
+        break;
+    case TX79_MMI_CLASS_MMI3:
+        decode_tx79_mmi3(env, ctx);
+        break;
+    case TX79_MMI_MULT1:
+    case TX79_MMI_MULTU1:
+        gen_mul_txx9(ctx, opc, rd, rs, rt);
+        break;
+    case TX79_MMI_DIV1:
+    case TX79_MMI_DIVU1:
+        gen_muldiv(ctx, opc, 1, rs, rt);
+        break;
+    case TX79_MMI_MTLO1:
+    case TX79_MMI_MTHI1:
+        gen_HILO(ctx, opc, 1, rs);
+        break;
+    case TX79_MMI_MFLO1:
+    case TX79_MMI_MFHI1:
+        gen_HILO(ctx, opc, 1, rd);
+        break;
+    case TX79_MMI_MADD:          /* TODO: TX79_MMI_MADD */
+    case TX79_MMI_MADDU:         /* TODO: TX79_MMI_MADDU */
+    case TX79_MMI_PLZCW:         /* TODO: TX79_MMI_PLZCW */
+    case TX79_MMI_MADD1:         /* TODO: TX79_MMI_MADD1 */
+    case TX79_MMI_MADDU1:        /* TODO: TX79_MMI_MADDU1 */
+    case TX79_MMI_PMFHL:         /* TODO: TX79_MMI_PMFHL */
+    case TX79_MMI_PMTHL:         /* TODO: TX79_MMI_PMTHL */
+    case TX79_MMI_PSLLH:         /* TODO: TX79_MMI_PSLLH */
+    case TX79_MMI_PSRLH:         /* TODO: TX79_MMI_PSRLH */
+    case TX79_MMI_PSRAH:         /* TODO: TX79_MMI_PSRAH */
+    case TX79_MMI_PSLLW:         /* TODO: TX79_MMI_PSLLW */
+    case TX79_MMI_PSRLW:         /* TODO: TX79_MMI_PSRLW */
+    case TX79_MMI_PSRAW:         /* TODO: TX79_MMI_PSRAW */
+        generate_exception_end(ctx, EXCP_RI);    /* TODO: TX79_CLASS_MMI */
+        break;
+    default:
+        MIPS_INVAL("TX79 MMI class");
+        generate_exception_end(ctx, EXCP_RI);
+        break;
+    }
+}
+
+static void decode_tx79_lq(CPUMIPSState *env, DisasContext *ctx)
+{
+    generate_exception_end(ctx, EXCP_RI);    /* TODO: TX79_LQ */
+}
+
+static void gen_tx79_sq(DisasContext *ctx, int base, int rt, int offset)
+{
+    generate_exception_end(ctx, EXCP_RI);    /* TODO: TX79_SQ */
+}
+
+/*
+ * The TX79-specific instruction Store Quadword
+ *
+ * +--------+-------+-------+------------------------+
+ * | 011111 |  base |   rt  |           offset       | SQ
+ * +--------+-------+-------+------------------------+
+ *      6       5       5                 16
+ *
+ * has the same opcode as the Read Hardware Register instruction
+ *
+ * +--------+-------+-------+-------+-------+--------+
+ * | 011111 | 00000 |   rt  |   rd  | 00000 | 111011 | RDHWR
+ * +--------+-------+-------+-------+-------+--------+
+ *      6       5       5       5       5        6
+ *
+ * that is required, trapped and emulated by the Linux kernel. However, all
+ * RDHWR encodings yield address error exceptions on the TX79 since the SQ
+ * offset is odd. Therefore all valid SQ instructions can execute normally.
+ * In user mode, QEMU must verify the upper and lower 11 bits to distinguish
+ * between SQ and RDHWR, as the Linux kernel does.
+ */
+static void decode_tx79_sq(CPUMIPSState *env, DisasContext *ctx)
+{
+    int base = extract32(ctx->opcode, 21, 5);
+    int rt = extract32(ctx->opcode, 16, 5);
+    int offset = extract32(ctx->opcode, 0, 16);
+
+#ifdef CONFIG_USER_ONLY
+    uint32_t op1 = MASK_SPECIAL3(ctx->opcode);
+    uint32_t op2 = extract32(ctx->opcode, 6, 5);
+
+    if (base == 0 && op2 == 0 && op1 == OPC_RDHWR) {
+        int rd = extract32(ctx->opcode, 11, 5);
+
+        gen_rdhwr(ctx, rt, rd, 0);
+        return;
+    }
+#endif
+
+    gen_tx79_sq(ctx, base, rt, offset);
+}
+
 static void decode_opc_special3(CPUMIPSState *env, DisasContext *ctx)
 {
     int rs, rt, rd, sa;
@@ -23380,7 +24997,9 @@ static void decode_opc_special3(CPUMIPSState *env, DisasContext *ctx)
         op2 = MASK_BSHFL(ctx->opcode);
         switch (op2) {
         case OPC_ALIGN:
-        case OPC_ALIGN_END:
+        case OPC_ALIGN_1:
+        case OPC_ALIGN_2:
+        case OPC_ALIGN_3:
         case OPC_BITSWAP:
             check_insn(ctx, ISA_MIPS32R6);
             decode_opc_special3_r6(env, ctx);
@@ -23406,7 +25025,13 @@ static void decode_opc_special3(CPUMIPSState *env, DisasContext *ctx)
         op2 = MASK_DBSHFL(ctx->opcode);
         switch (op2) {
         case OPC_DALIGN:
-        case OPC_DALIGN_END:
+        case OPC_DALIGN_1:
+        case OPC_DALIGN_2:
+        case OPC_DALIGN_3:
+        case OPC_DALIGN_4:
+        case OPC_DALIGN_5:
+        case OPC_DALIGN_6:
+        case OPC_DALIGN_7:
         case OPC_DBITSWAP:
             check_insn(ctx, ISA_MIPS32R6);
             decode_opc_special3_r6(env, ctx);
@@ -24605,10 +26230,18 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
         decode_opc_special(env, ctx);
         break;
     case OPC_SPECIAL2:
-        decode_opc_special2_legacy(env, ctx);
+        if ((ctx->insn_flags & INSN_R5900) && (ctx->insn_flags & ASE_MMI)) {
+            decode_tx79_mmi(env, ctx);
+        } else {
+            decode_opc_special2_legacy(env, ctx);
+        }
         break;
     case OPC_SPECIAL3:
-        decode_opc_special3(env, ctx);
+        if (ctx->insn_flags & INSN_R5900) {
+            decode_tx79_sq(env, ctx);    /* TX79_SQ */
+        } else {
+            decode_opc_special3(env, ctx);
+        }
         break;
     case OPC_REGIMM:
         op1 = MASK_REGIMM(ctx->opcode);
@@ -24895,6 +26528,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
          break;
     case OPC_LL: /* Load and stores */
         check_insn(ctx, ISA_MIPS2);
+        check_insn_opc_user_only(ctx, INSN_R5900);
         /* Fallthrough */
     case OPC_LWL:
     case OPC_LWR:
@@ -24920,6 +26554,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
     case OPC_SC:
         check_insn(ctx, ISA_MIPS2);
          check_insn_opc_removed(ctx, ISA_MIPS32R6);
+        check_insn_opc_user_only(ctx, INSN_R5900);
          gen_st_cond(ctx, op, rt, rs, imm);
          break;
     case OPC_CACHE:
@@ -24933,7 +26568,8 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
         break;
     case OPC_PREF:
         check_insn_opc_removed(ctx, ISA_MIPS32R6);
-        check_insn(ctx, ISA_MIPS4 | ISA_MIPS32);
+        check_insn(ctx, ISA_MIPS4 | ISA_MIPS32 |
+                   INSN_R5900);
         /* Treat as NOP. */
         break;
 
@@ -25185,9 +26821,11 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
 
 #if defined(TARGET_MIPS64)
     /* MIPS64 opcodes */
+    case OPC_LLD:
+        check_insn_opc_user_only(ctx, INSN_R5900);
+        /* fall through */
     case OPC_LDL:
     case OPC_LDR:
-    case OPC_LLD:
         check_insn_opc_removed(ctx, ISA_MIPS32R6);
         /* fall through */
     case OPC_LWU:
@@ -25208,6 +26846,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
     case OPC_SCD:
         check_insn_opc_removed(ctx, ISA_MIPS32R6);
         check_insn(ctx, ISA_MIPS3);
+        check_insn_opc_user_only(ctx, INSN_R5900);
         check_mips_64(ctx);
         gen_st_cond(ctx, op, rt, rs, imm);
         break;
@@ -25262,8 +26901,12 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
         }
         break;
     case OPC_MSA: /* OPC_MDMX */
-        /* MDMX: Not implemented. */
-        gen_msa(env, ctx);
+        if (ctx->insn_flags & INSN_R5900) {
+            decode_tx79_lq(env, ctx);    /* TX79_LQ */
+        } else {
+            /* MDMX: Not implemented. */
+            gen_msa(env, ctx);
+        }
         break;
     case OPC_PCREL:
         check_insn(ctx, ISA_MIPS32R6);
@@ -25285,6 +26928,7 @@ static void mips_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->saved_pc = -1;
     ctx->insn_flags = env->insn_flags;
     ctx->CP0_Config1 = env->CP0_Config1;
+    ctx->CP0_Config2 = env->CP0_Config2;
     ctx->CP0_Config3 = env->CP0_Config3;
     ctx->CP0_Config5 = env->CP0_Config5;
     ctx->btarget = 0;
@@ -25797,6 +27441,24 @@ void cpu_state_reset(CPUMIPSState *env)
         (env->active_fpu.fcr0 & (1 << FCR0_F64))) {
         /* Status.FR = 0 mode in 64-bit FPU not allowed in R6 */
         env->CP0_Status |= (1 << CP0St_FR);
+    }
+
+    if (env->insn_flags & ISA_MIPS32R6) {
+        /* PTW  =  1 */
+        env->CP0_PWSize = 0x40;
+        /* GDI  = 12 */
+        /* UDI  = 12 */
+        /* MDI  = 12 */
+        /* PRI  = 12 */
+        /* PTEI =  2 */
+        env->CP0_PWField = 0x0C30C302;
+    } else {
+        /* GDI  =  0 */
+        /* UDI  =  0 */
+        /* MDI  =  0 */
+        /* PRI  =  0 */
+        /* PTEI =  2 */
+        env->CP0_PWField = 0x02;
     }
 
     if (env->CP0_Config3 & (1 << CP0C3_ISA) & (1 << (CP0C3_ISA + 1))) {
