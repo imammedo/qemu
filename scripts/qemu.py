@@ -26,6 +26,12 @@ import tempfile
 LOG = logging.getLogger(__name__)
 
 
+def kvm_available(target_arch=None):
+    if target_arch and target_arch != os.uname()[4]:
+        return False
+    return os.access("/dev/kvm", os.R_OK | os.W_OK)
+
+
 #: Maps machine types to the preferred console device types
 CONSOLE_DEV_TYPES = {
     r'^clipper$': 'isa-serial',
@@ -87,7 +93,7 @@ class QEMUMachine(object):
         @param name: prefix for socket and log file names (default: qemu-PID)
         @param test_dir: where to create socket and log file
         @param monitor_address: address for QMP monitor
-        @param socket_scm_helper: helper program, required for send_fd_scm()"
+        @param socket_scm_helper: helper program, required for send_fd_scm()
         @note: Qemu process is not started until launch() is used.
         '''
         if args is None:
