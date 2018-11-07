@@ -474,6 +474,7 @@ libxml2=""
 docker="no"
 debug_mutex="no"
 libpmem=""
+libudev="no"
 
 # cross compilers defaults, can be overridden with --cross-cc-ARCH
 cross_cc_aarch64="aarch64-linux-gnu-gcc"
@@ -870,6 +871,7 @@ Linux)
   vhost_vsock="yes"
   QEMU_INCLUDES="-I\$(SRC_PATH)/linux-headers -I$(pwd)/linux-headers $QEMU_INCLUDES"
   supported_os="yes"
+  libudev="yes"
 ;;
 esac
 
@@ -5609,6 +5611,17 @@ if test "$libnfs" != "no" ; then
   fi
 fi
 
+##########################################
+# Do we have libudev
+if test "$libudev" != "no" ; then
+  if $pkg_config libudev && test "$static" != "yes"; then
+    libudev="yes"
+    libudev_libs=$($pkg_config --libs libudev)
+  else
+    libudev="no"
+  fi
+fi
+
 # Now we've finished running tests it's OK to add -Werror to the compiler flags
 if test "$werror" = "yes"; then
     QEMU_CFLAGS="-Werror $QEMU_CFLAGS"
@@ -6033,6 +6046,7 @@ echo "VxHS block device $vxhs"
 echo "capstone          $capstone"
 echo "docker            $docker"
 echo "libpmem support   $libpmem"
+echo "libudev           $libudev"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -6128,7 +6142,7 @@ if test "$mingw32" = "yes" ; then
     echo "WIN_SDK=\"$win_sdk\"" >> $config_host_mak
   fi
   if test "$guest_agent_ntddscsi" = "yes" ; then
-    echo "CONFIG_QGA_NTDDDISK=y" >> $config_host_mak
+    echo "CONFIG_QGA_NTDDSCSI=y" >> $config_host_mak
   fi
   if test "$guest_agent_msi" = "yes"; then
     echo "QEMU_GA_MSI_ENABLED=yes" >> $config_host_mak
@@ -6868,6 +6882,11 @@ if test "$docker" != "no"; then
     echo "HAVE_USER_DOCKER=y" >> $config_host_mak
 fi
 
+if test "$libudev" != "no"; then
+    echo "CONFIG_LIBUDEV=y" >> $config_host_mak
+    echo "LIBUDEV_LIBS=$libudev_libs" >> $config_host_mak
+fi
+
 # use included Linux headers
 if test "$linux" = "yes" ; then
   mkdir -p linux-headers
@@ -7373,22 +7392,33 @@ if test "$ccache_cpp2" = "yes"; then
   echo "export CCACHE_CPP2=y" >> $config_host_mak
 fi
 
-# build tree in object directory in case the source is not in the current directory
+# If we're using a separate build tree, set it up now.
+# DIRS are directories which we simply mkdir in the build tree;
+# LINKS are things to symlink back into the source tree
+# (these can be both files and directories).
+# Caution: do not add files or directories here using wildcards. This
+# will result in problems later if a new file matching the wildcard is
+# added to the source tree -- nothing will cause configure to be rerun
+# so the build tree will be missing the link back to the new file, and
+# tests might fail. Prefer to keep the relevant files in their own
+# directory and symlink the directory instead.
 DIRS="tests tests/tcg tests/tcg/cris tests/tcg/lm32 tests/libqos tests/qapi-schema tests/tcg/xtensa tests/qemu-iotests tests/vm"
 DIRS="$DIRS tests/fp"
 DIRS="$DIRS docs docs/interop fsdev scsi"
 DIRS="$DIRS pc-bios/optionrom pc-bios/spapr-rtas pc-bios/s390-ccw"
 DIRS="$DIRS roms/seabios roms/vgabios"
-FILES="Makefile tests/tcg/Makefile qdict-test-data.txt"
-FILES="$FILES tests/tcg/cris/Makefile tests/tcg/cris/.gdbinit"
-FILES="$FILES tests/tcg/lm32/Makefile tests/tcg/xtensa/Makefile po/Makefile"
-FILES="$FILES tests/fp/Makefile"
-FILES="$FILES pc-bios/optionrom/Makefile pc-bios/keymaps"
-FILES="$FILES pc-bios/spapr-rtas/Makefile"
-FILES="$FILES pc-bios/s390-ccw/Makefile"
-FILES="$FILES roms/seabios/Makefile roms/vgabios/Makefile"
-FILES="$FILES pc-bios/qemu-icon.bmp"
-FILES="$FILES .gdbinit scripts" # scripts needed by relative path in .gdbinit
+LINKS="Makefile tests/tcg/Makefile qdict-test-data.txt"
+LINKS="$LINKS tests/tcg/cris/Makefile tests/tcg/cris/.gdbinit"
+LINKS="$LINKS tests/tcg/lm32/Makefile tests/tcg/xtensa/Makefile po/Makefile"
+LINKS="$LINKS tests/fp/Makefile"
+LINKS="$LINKS pc-bios/optionrom/Makefile pc-bios/keymaps"
+LINKS="$LINKS pc-bios/spapr-rtas/Makefile"
+LINKS="$LINKS pc-bios/s390-ccw/Makefile"
+LINKS="$LINKS roms/seabios/Makefile roms/vgabios/Makefile"
+LINKS="$LINKS pc-bios/qemu-icon.bmp"
+LINKS="$LINKS .gdbinit scripts" # scripts needed by relative path in .gdbinit
+LINKS="$LINKS tests/acceptance tests/data"
+LINKS="$LINKS tests/qemu-iotests/check"
 for bios_file in \
     $source_path/pc-bios/*.bin \
     $source_path/pc-bios/*.lid \
@@ -7400,18 +7430,10 @@ for bios_file in \
     $source_path/pc-bios/u-boot.* \
     $source_path/pc-bios/palcode-*
 do
-    FILES="$FILES pc-bios/$(basename $bios_file)"
-done
-for test_file in $(find $source_path/tests/acpi-test-data -type f)
-do
-    FILES="$FILES tests/acpi-test-data$(echo $test_file | sed -e 's/.*acpi-test-data//')"
-done
-for test_file in $(find $source_path/tests/hex-loader-check-data -type f)
-do
-    FILES="$FILES tests/hex-loader-check-data$(echo $test_file | sed -e 's/.*hex-loader-check-data//')"
+    LINKS="$LINKS pc-bios/$(basename $bios_file)"
 done
 mkdir -p $DIRS
-for f in $FILES ; do
+for f in $LINKS ; do
     if [ -e "$source_path/$f" ] && [ "$pwd_is_source_path" != "y" ]; then
         symlink "$source_path/$f" "$f"
     fi
@@ -7433,24 +7455,12 @@ for rom in seabios vgabios ; do
     echo "RANLIB=$ranlib" >> $config_mak
 done
 
-# set up tests data directory
-for tests_subdir in acceptance data; do
-    if [ ! -e tests/$tests_subdir ]; then
-        symlink "$source_path/tests/$tests_subdir" tests/$tests_subdir
-    fi
-done
-
 # set up qemu-iotests in this build directory
 iotests_common_env="tests/qemu-iotests/common.env"
-iotests_check="tests/qemu-iotests/check"
 
 echo "# Automatically generated by configure - do not modify" > "$iotests_common_env"
 echo >> "$iotests_common_env"
 echo "export PYTHON='$python'" >> "$iotests_common_env"
-
-if [ ! -e "$iotests_check" ]; then
-    symlink "$source_path/$iotests_check" "$iotests_check"
-fi
 
 # Save the configure command line for later reuse.
 cat <<EOD >config.status
