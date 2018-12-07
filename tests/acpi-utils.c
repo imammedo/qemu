@@ -52,14 +52,6 @@ uint32_t acpi_find_rsdp_address(void)
     return off;
 }
 
-uint32_t acpi_get_rsdt_address(uint8_t *rsdp_table)
-{
-    uint32_t rsdt_physical_address;
-
-    memcpy(&rsdt_physical_address, &rsdp_table[16 /* RsdtAddress offset */], 4);
-    return le32_to_cpu(rsdt_physical_address);
-}
-
 uint64_t acpi_get_xsdt_address(uint8_t *rsdp_table)
 {
     uint64_t xsdt_physical_address;
@@ -92,4 +84,29 @@ void acpi_parse_rsdp_table(uint32_t addr, uint8_t *rsdp_table)
     }
 
     ACPI_ASSERT_CMP64(*((uint64_t *)(rsdp_table)), "RSD PTR ");
+}
+
+/** acpi_fetch_table
+ *  load ACPI table at @addr_ptr offset pointer into buffer and return it in
+ *  @aml, its length in @aml_len and check that signature/checksum matches
+ *  actual one.
+ */
+void acpi_fetch_table(uint8_t **aml, uint32_t *aml_len, const uint8_t *addr_ptr,
+                      const char *sig, bool verify_checksum)
+{
+    uint32_t addr, len;
+
+    memcpy(&addr, addr_ptr , sizeof(addr));
+    addr = le32_to_cpu(addr);
+    memread(addr + 4, &len, 4); /* Length of ACPI table */
+    *aml_len = le32_to_cpu(len);
+    *aml = g_malloc0(*aml_len);
+    memread(addr, *aml, *aml_len); /* get whole table */
+
+    if (sig) {
+        ACPI_ASSERT_CMP(**aml, sig);
+    }
+    if (verify_checksum) {
+        g_assert(!acpi_calc_checksum(*aml, *aml_len));
+    }
 }
