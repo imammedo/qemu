@@ -674,7 +674,8 @@ spapr-rtas.bin slof.bin skiboot.lid \
 palcode-clipper \
 u-boot.e500 u-boot-sam460-20100605.bin \
 qemu_vga.ndrv \
-hppa-firmware.img
+hppa-firmware.img \
+avmf.img avmf_vars.img
 else
 BLOBS=
 endif
