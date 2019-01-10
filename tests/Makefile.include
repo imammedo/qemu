@@ -296,6 +296,7 @@ check-qtest-aarch64-$(CONFIG_SDHCI) += tests/sdhci-test$(EXESUF)
 check-qtest-aarch64-y += tests/boot-serial-test$(EXESUF)
 check-qtest-aarch64-y += tests/migration-test$(EXESUF)
 qtest-uefi-images-aarch64 = avmf.img avmf_vars.img
+check-qtest-aarch64-y += tests/bios-tables-test$(EXESUF)
 
 check-qtest-microblazeel-y += $(check-qtest-microblaze-y)
 
