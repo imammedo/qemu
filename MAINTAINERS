@@ -205,21 +205,24 @@ F: disas/microblaze.c
 MIPS
 M: Aurelien Jarno <aurelien@aurel32.net>
 M: Aleksandar Markovic <amarkovic@wavecomp.com>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: target/mips/
+F: default-configs/*mips*
+F: disas/mips.c
+F: disas/nanomips.cpp
+F: disas/nanomips.h
+F: hw/intc/mips_gic.c
 F: hw/mips/
 F: hw/misc/mips_*
-F: hw/intc/mips_gic.c
 F: hw/timer/mips_gictimer.c
+F: include/hw/intc/mips_gic.h
 F: include/hw/mips/
 F: include/hw/misc/mips_*
-F: include/hw/intc/mips_gic.h
 F: include/hw/timer/mips_gictimer.h
 F: tests/tcg/mips/
-F: disas/mips.c
-F: disas/nanomips.h
-F: disas/nanomips.cpp
+K: ^Subject:.*(?i)mips
 
 Moxie
 M: Anthony Green <green@moxielogic.com>
@@ -262,11 +265,12 @@ M: Alistair Francis <Alistair.Francis@wdc.com>
 M: Sagar Karandikar <sagark@eecs.berkeley.edu>
 M: Bastian Koppelmann <kbastian@mail.uni-paderborn.de>
 L: qemu-riscv@nongnu.org
-S: Maintained
+S: Supported
 F: target/riscv/
 F: hw/riscv/
 F: include/hw/riscv/
-F: disas/riscv.c
+F: linux-user/host/riscv32/
+F: linux-user/host/riscv64/
 
 S390
 M: Richard Henderson <rth@twiddle.net>
@@ -360,6 +364,7 @@ F: target/arm/kvm.c
 
 MIPS
 M: James Hogan <jhogan@kernel.org>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: target/mips/kvm.c
@@ -510,6 +515,7 @@ F: hw/intc/arm*
 F: hw/intc/gic_internal.h
 F: hw/misc/a9scu.c
 F: hw/misc/arm11scu.c
+F: hw/misc/arm_l2x0.c
 F: hw/timer/a9gtimer*
 F: hw/timer/arm*
 F: include/hw/arm/arm*.h
@@ -582,6 +588,7 @@ L: qemu-arm@nongnu.org
 S: Maintained
 F: hw/arm/integratorcp.c
 F: hw/misc/arm_integrator_debug.c
+F: include/hw/misc/arm_integrator_debug.h
 
 MCIMX6UL EVK / i.MX6ul
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -601,7 +608,9 @@ L: qemu-arm@nongnu.org
 S: Odd Fixes
 F: hw/arm/mcimx7d-sabre.c
 F: hw/arm/fsl-imx7.c
+F: hw/misc/imx7_*.c
 F: include/hw/arm/fsl-imx7.h
+F: include/hw/misc/imx7_*.h
 F: hw/pci-host/designware.c
 F: include/hw/pci-host/designware.h
 
@@ -635,6 +644,10 @@ M: Peter Maydell <peter.maydell@linaro.org>
 L: qemu-arm@nongnu.org
 S: Odd Fixes
 F: hw/arm/nseries.c
+F: hw/input/lm832x.c
+F: hw/input/tsc2005.c
+F: hw/misc/cbus.c
+F: hw/timer/twl92230.c
 
 Palm
 M: Andrzej Zaborowski <balrogg@gmail.com>
@@ -642,6 +655,7 @@ M: Peter Maydell <peter.maydell@linaro.org>
 L: qemu-arm@nongnu.org
 S: Odd Fixes
 F: hw/arm/palm.c
+F: hw/input/tsc210x.c
 
 Raspberry Pi
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -678,6 +692,7 @@ F: hw/display/tc6393xb.c
 F: hw/gpio/max7310.c
 F: hw/gpio/zaurus.c
 F: hw/misc/mst_fpga.c
+F: hw/misc/max111x.c
 F: include/hw/arm/pxa.h
 F: include/hw/arm/sharpsl.h
 
@@ -688,10 +703,10 @@ L: qemu-arm@nongnu.org
 S: Odd Fixes
 F: hw/arm/sabrelite.c
 F: hw/arm/fsl-imx6.c
-F: hw/misc/imx6_src.c
+F: hw/misc/imx6_*.c
 F: hw/ssi/imx_spi.c
 F: include/hw/arm/fsl-imx6.h
-F: include/hw/misc/imx6_src.h
+F: include/hw/misc/imx6_*.h
 F: include/hw/ssi/imx_spi.h
 
 Sharp SL-5500 (Collie) PDA
@@ -802,7 +817,9 @@ R: Joel Stanley <joel@jms.id.au>
 L: qemu-arm@nongnu.org
 S: Maintained
 F: hw/*/*aspeed*
+F: hw/misc/pca9552.c
 F: include/hw/*/*aspeed*
+F: include/hw/misc/pca9552*.h
 F: hw/net/ftgmac100.c
 F: include/hw/net/ftgmac100.h
 
@@ -869,6 +886,7 @@ MIPS Machines
 -------------
 Jazz
 M: Hervé Poussineau <hpoussin@reactos.org>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: hw/mips/mips_jazz.c
@@ -877,12 +895,14 @@ F: hw/dma/rc4030.c
 
 Malta
 M: Aurelien Jarno <aurelien@aurel32.net>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: hw/mips/mips_malta.c
 
 Mipssim
 M: Aleksandar Markovic <amarkovic@wavecomp.com>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Odd Fixes
 F: hw/mips/mips_mipssim.c
@@ -890,12 +910,14 @@ F: hw/net/mipsnet.c
 
 R4000
 M: Aurelien Jarno <aurelien@aurel32.net>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: hw/mips/mips_r4k.c
 
 Fulong 2E
 M: Aleksandar Markovic <amarkovic@wavecomp.com>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Odd Fixes
 F: hw/mips/mips_fulong2e.c
@@ -905,6 +927,7 @@ F: include/hw/isa/vt82c686.h
 
 Boston
 M: Paul Burton <pburton@wavecomp.com>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: hw/core/loader-fit.c
@@ -939,6 +962,7 @@ L: qemu-ppc@nongnu.org
 S: Odd Fixes
 F: hw/ppc/e500.[hc]
 F: hw/ppc/e500plat.c
+F: hw/gpio/mpc8xxx.c
 F: include/hw/ppc/ppc_e500.h
 F: include/hw/pci-host/ppce500.h
 F: pc-bios/u-boot.e500
@@ -950,7 +974,7 @@ S: Odd Fixes
 F: hw/ppc/mpc8544ds.c
 F: hw/ppc/mpc8544_guts.c
 
-New World
+New World (mac99)
 M: David Gibson <david@gibson.dropbear.id.au>
 L: qemu-ppc@nongnu.org
 S: Odd Fixes
@@ -960,12 +984,15 @@ F: hw/pci-bridge/dec.[hc]
 F: hw/misc/macio/
 F: hw/misc/mos6522.c
 F: hw/nvram/mac_nvram.c
+F: hw/input/adb*
 F: include/hw/misc/macio/
 F: include/hw/misc/mos6522.h
 F: include/hw/ppc/mac_dbdma.h
 F: include/hw/pci-host/uninorth.h
+F: include/hw/input/adb*
+F: pc-bios/qemu_vga.ndrv
 
-Old World
+Old World (g3beige)
 M: David Gibson <david@gibson.dropbear.id.au>
 L: qemu-ppc@nongnu.org
 S: Odd Fixes
@@ -973,7 +1000,10 @@ F: hw/ppc/mac_oldworld.c
 F: hw/pci-host/grackle.c
 F: hw/misc/macio/
 F: hw/intc/heathrow_pic.c
+F: hw/input/adb*
 F: include/hw/intc/heathrow_pic.h
+F: include/hw/input/adb*
+F: pc-bios/qemu_vga.ndrv
 
 PReP
 M: Hervé Poussineau <hpoussin@reactos.org>
@@ -1029,8 +1059,14 @@ sam460ex
 M: BALATON Zoltan <balaton@eik.bme.hu>
 L: qemu-ppc@nongnu.org
 S: Maintained
+F: hw/ppc/sam460ex.c
+F: hw/ppc/ppc440_pcix.c
+F: hw/display/sm501*
 F: hw/ide/sii3112.c
 F: hw/timer/m41t80.c
+F: pc-bios/canyonlands.dt[sb]
+F: pc-bios/u-boot-sam460ex-20100605.bin
+F: roms/u-boot-sam460ex
 
 SH4 Machines
 ------------
@@ -1184,7 +1220,9 @@ M: Marcel Apfelbaum <marcel.apfelbaum@gmail.com>
 S: Supported
 F: hw/core/machine.c
 F: hw/core/null-machine.c
+F: hw/cpu/cluster.c
 F: include/hw/boards.h
+F: include/hw/cpu/cluster.h
 T: git https://github.com/ehabkost/qemu.git machine-next
 
 Xtensa Machines
@@ -2161,6 +2199,7 @@ F: disas/i386.c
 
 MIPS target
 M: Aurelien Jarno <aurelien@aurel32.net>
+R: Aleksandar Rikalo <arikalo@wavecomp.com>
 R: Stefan Markovic <smarkovic@wavecomp.com>
 S: Maintained
 F: tcg/mips/
@@ -2171,6 +2210,15 @@ M: Richard Henderson <rth@twiddle.net>
 S: Odd Fixes
 F: tcg/ppc/
 F: disas/ppc.c
+
+RISC-V
+M: Michael Clark <mjc@sifive.com>
+M: Palmer Dabbelt <palmer@sifive.com>
+M: Alistair Francis <Alistair.Francis@wdc.com>
+L: qemu-riscv@nongnu.org
+S: Maintained
+F: tcg/riscv/
+F: disas/riscv.c
 
 S390 target
 M: Richard Henderson <rth@twiddle.net>

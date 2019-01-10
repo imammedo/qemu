@@ -191,7 +191,6 @@ int boot_menu;
 bool boot_strict;
 uint8_t *boot_splash_filedata;
 size_t boot_splash_filedata_size;
-uint8_t qemu_extra_params_fw[2];
 bool wakeup_suspend_enabled;
 
 int icount_align_option;
@@ -338,10 +337,10 @@ static QemuOptsList qemu_boot_opts = {
             .type = QEMU_OPT_STRING,
         }, {
             .name = "splash-time",
-            .type = QEMU_OPT_STRING,
+            .type = QEMU_OPT_NUMBER,
         }, {
             .name = "reboot-timeout",
-            .type = QEMU_OPT_STRING,
+            .type = QEMU_OPT_NUMBER,
         }, {
             .name = "strict",
             .type = QEMU_OPT_BOOL,
@@ -2965,8 +2964,6 @@ static int global_init_func(void *opaque, QemuOpts *opts, Error **errp)
     g->driver   = qemu_opt_get(opts, "driver");
     g->property = qemu_opt_get(opts, "property");
     g->value    = qemu_opt_get(opts, "value");
-    g->user_provided = true;
-    g->errp = &error_fatal;
     qdev_prop_register_global(g);
     return 0;
 }
@@ -2997,8 +2994,6 @@ static void user_register_global_props(void)
  */
 static void register_global_properties(MachineState *ms)
 {
-    accel_register_compat_props(ms->accelerator);
-    machine_register_compat_props(ms);
     user_register_global_props();
 }
 
