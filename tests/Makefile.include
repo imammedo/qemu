@@ -269,6 +269,7 @@ check-qtest-arm-y += tests/hexloader-test$(EXESUF)
 check-qtest-aarch64-y = tests/numa-test$(EXESUF)
 check-qtest-aarch64-y += tests/boot-serial-test$(EXESUF)
 check-qtest-aarch64-y += tests/migration-test$(EXESUF)
+qtest-uefi-images-aarch64 = edk2-aarch64-code.fd.xz edk2-arm-vars.fd.xz
 
 check-qtest-microblazeel-y += $(check-qtest-microblaze-y)
 
