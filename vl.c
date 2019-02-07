@@ -160,11 +160,9 @@ static int rtc_host_datetime_offset = -1; /* valid & used only with
 QEMUClockType rtc_clock;
 int vga_interface_type = VGA_NONE;
 static DisplayOptions dpy;
-int no_frame;
 static int num_serial_hds;
 static Chardev **serial_hds;
 Chardev *parallel_hds[MAX_PARALLEL_PORTS];
-Chardev *virtcon_hds[MAX_VIRTIO_CONSOLES];
 int win2k_install_hack = 0;
 int singlestep = 0;
 int smp_cpus;
@@ -215,7 +213,6 @@ bool xen_domid_restrict;
 static int has_defaults = 1;
 static int default_serial = 1;
 static int default_parallel = 1;
-static int default_virtcon = 1;
 static int default_monitor = 1;
 static int default_floppy = 1;
 static int default_cdrom = 1;
@@ -236,8 +233,6 @@ static struct {
     { .driver = "ide-drive",            .flag = &default_cdrom     },
     { .driver = "scsi-cd",              .flag = &default_cdrom     },
     { .driver = "scsi-hd",              .flag = &default_cdrom     },
-    { .driver = "virtio-serial-pci",    .flag = &default_virtcon   },
-    { .driver = "virtio-serial",        .flag = &default_virtcon   },
     { .driver = "VGA",                  .flag = &default_vga       },
     { .driver = "isa-vga",              .flag = &default_vga       },
     { .driver = "cirrus-vga",           .flag = &default_vga       },
@@ -731,6 +726,9 @@ void runstate_set(RunState new_state)
 {
     assert(new_state < RUN_STATE__MAX);
 
+    trace_runstate_set(current_run_state, RunState_str(current_run_state),
+                       new_state, RunState_str(current_run_state));
+
     if (current_run_state == new_state) {
         return;
     }
@@ -741,7 +739,7 @@ void runstate_set(RunState new_state)
                      RunState_str(new_state));
         abort();
     }
-    trace_runstate_set(new_state);
+
     current_run_state = new_state;
 }
 
@@ -1554,7 +1552,7 @@ void vm_state_notify(int running, RunState state)
 {
     VMChangeStateEntry *e, *next;
 
-    trace_vm_state_notify(running, state);
+    trace_vm_state_notify(running, state, RunState_str(state));
 
     QLIST_FOREACH_SAFE(e, &vm_change_state_head, entries, next) {
         e->cb(e->opaque, running, state);
@@ -2110,18 +2108,7 @@ static void parse_display(const char *p)
         while (*opts) {
             const char *nextopt;
 
-            if (strstart(opts, ",frame=", &nextopt)) {
-                g_printerr("The frame= sdl option is deprecated, and will be\n"
-                           "removed in a future release.\n");
-                opts = nextopt;
-                if (strstart(opts, "on", &nextopt)) {
-                    no_frame = 0;
-                } else if (strstart(opts, "off", &nextopt)) {
-                    no_frame = 1;
-                } else {
-                    goto invalid_sdl_args;
-                }
-            } else if (strstart(opts, ",alt_grab=", &nextopt)) {
+            if (strstart(opts, ",alt_grab=", &nextopt)) {
                 opts = nextopt;
                 if (strstart(opts, "on", &nextopt)) {
                     alt_grab = 1;
@@ -2402,7 +2389,6 @@ struct device_config {
         DEV_BT,        /* -bt            */
         DEV_SERIAL,    /* -serial        */
         DEV_PARALLEL,  /* -parallel      */
-        DEV_VIRTCON,   /* -virtioconsole */
         DEV_DEBUGCON,  /* -debugcon */
         DEV_GDB,       /* -gdb, -s */
         DEV_SCLP,      /* s390 sclp */
@@ -2496,39 +2482,6 @@ static int parallel_parse(const char *devname)
                      " to character backend '%s'", devname);
         return -1;
     }
-    index++;
-    return 0;
-}
-
-static int virtcon_parse(const char *devname)
-{
-    QemuOptsList *device = qemu_find_opts("device");
-    static int index = 0;
-    char label[32];
-    QemuOpts *bus_opts, *dev_opts;
-
-    if (strcmp(devname, "none") == 0)
-        return 0;
-    if (index == MAX_VIRTIO_CONSOLES) {
-        error_report("too many virtio consoles");
-        exit(1);
-    }
-
-    bus_opts = qemu_opts_create(device, NULL, 0, &error_abort);
-    qemu_opt_set(bus_opts, "driver", "virtio-serial", &error_abort);
-
-    dev_opts = qemu_opts_create(device, NULL, 0, &error_abort);
-    qemu_opt_set(dev_opts, "driver", "virtconsole", &error_abort);
-
-    snprintf(label, sizeof(label), "virtcon%d", index);
-    virtcon_hds[index] = qemu_chr_new_mux_mon(label, devname);
-    if (!virtcon_hds[index]) {
-        error_report("could not connect virtio console"
-                     " to character backend '%s'", devname);
-        return -1;
-    }
-    qemu_opt_set(dev_opts, "chardev", label, &error_abort);
-
     index++;
     return 0;
 }
@@ -3567,15 +3520,6 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 break;
-            case QEMU_OPTION_virtiocon:
-                warn_report("This option is deprecated, "
-                            "use '-device virtconsole' instead");
-                add_device_config(DEV_VIRTCON, optarg);
-                default_virtcon = 0;
-                if (strncmp(optarg, "mon:", 4) == 0) {
-                    default_monitor = 0;
-                }
-                break;
             case QEMU_OPTION_parallel:
                 add_device_config(DEV_PARALLEL, optarg);
                 default_parallel = 0;
@@ -3592,11 +3536,6 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_full_screen:
                 dpy.has_full_screen = true;
                 dpy.full_screen = true;
-                break;
-            case QEMU_OPTION_no_frame:
-                g_printerr("The -no-frame switch is deprecated, and will be\n"
-                           "removed in a future release.\n");
-                no_frame = 1;
                 break;
             case QEMU_OPTION_alt_grab:
                 alt_grab = 1;
@@ -3651,11 +3590,6 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_enable_kvm:
                 olist = qemu_find_opts("machine");
                 qemu_opts_parse_noisily(olist, "accel=kvm", false);
-                break;
-            case QEMU_OPTION_enable_hax:
-                warn_report("Option is deprecated, use '-accel hax' instead");
-                olist = qemu_find_opts("machine");
-                qemu_opts_parse_noisily(olist, "accel=hax", false);
                 break;
             case QEMU_OPTION_M:
             case QEMU_OPTION_machine:
@@ -4185,9 +4119,6 @@ int main(int argc, char **argv, char **envp)
     if (!has_defaults || machine_class->no_parallel) {
         default_parallel = 0;
     }
-    if (!has_defaults || !machine_class->use_virtcon) {
-        default_virtcon = 0;
-    }
     if (!has_defaults || machine_class->no_floppy) {
         default_floppy = 0;
     }
@@ -4220,8 +4151,7 @@ int main(int argc, char **argv, char **envp)
          * usage, -nographic is just a no-op in this case.
          */
         if (nographic
-            && (default_parallel || default_serial
-                || default_monitor || default_virtcon)) {
+            && (default_parallel || default_serial || default_monitor)) {
             error_report("-nographic cannot be used with -daemonize");
             exit(1);
         }
@@ -4238,13 +4168,9 @@ int main(int argc, char **argv, char **envp)
             add_device_config(DEV_PARALLEL, "null");
         if (default_serial && default_monitor) {
             add_device_config(DEV_SERIAL, "mon:stdio");
-        } else if (default_virtcon && default_monitor) {
-            add_device_config(DEV_VIRTCON, "mon:stdio");
         } else {
             if (default_serial)
                 add_device_config(DEV_SERIAL, "stdio");
-            if (default_virtcon)
-                add_device_config(DEV_VIRTCON, "stdio");
             if (default_monitor)
                 monitor_parse("stdio", "readline", false);
         }
@@ -4255,8 +4181,6 @@ int main(int argc, char **argv, char **envp)
             add_device_config(DEV_PARALLEL, "vc:80Cx24C");
         if (default_monitor)
             monitor_parse("vc:80Cx24C", "readline", false);
-        if (default_virtcon)
-            add_device_config(DEV_VIRTCON, "vc:80Cx24C");
     }
 
 #if defined(CONFIG_VNC)
@@ -4276,8 +4200,8 @@ int main(int argc, char **argv, char **envp)
         dpy.type = DISPLAY_TYPE_NONE;
     }
 
-    if ((no_frame || alt_grab || ctrl_grab) && dpy.type != DISPLAY_TYPE_SDL) {
-        error_report("-no-frame, -alt-grab and -ctrl-grab are only valid "
+    if ((alt_grab || ctrl_grab) && dpy.type != DISPLAY_TYPE_SDL) {
+        error_report("-alt-grab and -ctrl-grab are only valid "
                      "for SDL, ignoring option");
     }
     if (dpy.has_window_close &&
@@ -4486,8 +4410,6 @@ int main(int argc, char **argv, char **envp)
     if (foreach_device_config(DEV_SERIAL, serial_parse) < 0)
         exit(1);
     if (foreach_device_config(DEV_PARALLEL, parallel_parse) < 0)
-        exit(1);
-    if (foreach_device_config(DEV_VIRTCON, virtcon_parse) < 0)
         exit(1);
     if (foreach_device_config(DEV_DEBUGCON, debugcon_parse) < 0)
         exit(1);

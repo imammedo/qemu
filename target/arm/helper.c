@@ -977,6 +977,7 @@ static const ARMCPRegInfo v6_cp_reginfo[] = {
 /* Definitions for the PMU registers */
 #define PMCRN_MASK  0xf800
 #define PMCRN_SHIFT 11
+#define PMCRLC  0x40
 #define PMCRDP  0x10
 #define PMCRD   0x8
 #define PMCRC   0x4
@@ -1020,6 +1021,13 @@ typedef struct pm_event {
      * counters hold a difference from the return value from this function
      */
     uint64_t (*get_count)(CPUARMState *);
+    /*
+     * Return how many nanoseconds it will take (at a minimum) for count events
+     * to occur. A negative value indicates the counter will never overflow, or
+     * that the counter has otherwise arranged for the overflow bit to be set
+     * and the PMU interrupt to be raised on overflow.
+     */
+    int64_t (*ns_per_count)(uint64_t);
 } pm_event;
 
 static bool event_always_supported(CPUARMState *env)
@@ -1034,6 +1042,11 @@ static uint64_t swinc_get_count(CPUARMState *env)
      * PMSWINC, so there is no underlying count maintained by the PMU itself
      */
     return 0;
+}
+
+static int64_t swinc_ns_per(uint64_t ignored)
+{
+    return -1;
 }
 
 /*
@@ -1051,6 +1064,11 @@ static uint64_t cycles_get_count(CPUARMState *env)
 }
 
 #ifndef CONFIG_USER_ONLY
+static int64_t cycles_ns_per(uint64_t cycles)
+{
+    return (ARM_CPU_FREQ / NANOSECONDS_PER_SECOND) * cycles;
+}
+
 static bool instructions_supported(CPUARMState *env)
 {
     return use_icount == 1 /* Precise instruction counting */;
@@ -1060,21 +1078,29 @@ static uint64_t instructions_get_count(CPUARMState *env)
 {
     return (uint64_t)cpu_get_icount_raw();
 }
+
+static int64_t instructions_ns_per(uint64_t icount)
+{
+    return cpu_icount_to_ns((int64_t)icount);
+}
 #endif
 
 static const pm_event pm_events[] = {
     { .number = 0x000, /* SW_INCR */
       .supported = event_always_supported,
       .get_count = swinc_get_count,
+      .ns_per_count = swinc_ns_per,
     },
 #ifndef CONFIG_USER_ONLY
     { .number = 0x008, /* INST_RETIRED, Instruction architecturally executed */
       .supported = instructions_supported,
       .get_count = instructions_get_count,
+      .ns_per_count = instructions_ns_per,
     },
     { .number = 0x011, /* CPU_CYCLES, Cycle */
       .supported = event_always_supported,
       .get_count = cycles_get_count,
+      .ns_per_count = cycles_ns_per,
     }
 #endif
 };
@@ -1090,22 +1116,24 @@ static const pm_event pm_events[] = {
 static uint16_t supported_event_map[MAX_EVENT_ID + 1];
 
 /*
- * Called upon initialization to build PMCEID0_EL0 or PMCEID1_EL0 (indicated by
- * 'which'). We also use it to build a map of ARM event numbers to indices in
- * our pm_events array.
+ * Called upon CPU initialization to initialize PMCEID[01]_EL0 and build a map
+ * of ARM event numbers to indices in our pm_events array.
  *
  * Note: Events in the 0x40XX range are not currently supported.
  */
-uint64_t get_pmceid(CPUARMState *env, unsigned which)
+void pmu_init(ARMCPU *cpu)
 {
-    uint64_t pmceid = 0;
     unsigned int i;
 
-    assert(which <= 1);
-
+    /*
+     * Empty supported_event_map and cpu->pmceid[01] before adding supported
+     * events to them
+     */
     for (i = 0; i < ARRAY_SIZE(supported_event_map); i++) {
         supported_event_map[i] = UNSUPPORTED_EVENT;
     }
+    cpu->pmceid0 = 0;
+    cpu->pmceid1 = 0;
 
     for (i = 0; i < ARRAY_SIZE(pm_events); i++) {
         const pm_event *cnt = &pm_events[i];
@@ -1113,13 +1141,16 @@ uint64_t get_pmceid(CPUARMState *env, unsigned which)
         /* We do not currently support events in the 0x40xx range */
         assert(cnt->number <= 0x3f);
 
-        if ((cnt->number & 0x20) == (which << 6) &&
-                cnt->supported(env)) {
-            pmceid |= (1 << (cnt->number & 0x1f));
+        if (cnt->supported(&cpu->env)) {
             supported_event_map[cnt->number] = i;
+            uint64_t event_mask = 1 << (cnt->number & 0x1f);
+            if (cnt->number & 0x20) {
+                cpu->pmceid1 |= event_mask;
+            } else {
+                cpu->pmceid0 |= event_mask;
+            }
         }
     }
-    return pmceid;
 }
 
 /*
@@ -1288,6 +1319,13 @@ static bool pmu_counter_enabled(CPUARMState *env, uint8_t counter)
     return enabled && !prohibited && !filtered;
 }
 
+static void pmu_update_irq(CPUARMState *env)
+{
+    ARMCPU *cpu = arm_env_get_cpu(env);
+    qemu_set_irq(cpu->pmu_interrupt, (env->cp15.c9_pmcr & PMCRE) &&
+            (env->cp15.c9_pminten & env->cp15.c9_pmovsr));
+}
+
 /*
  * Ensure c15_ccnt is the guest-visible count so that operations such as
  * enabling/disabling the counter or filtering, modifying the count itself,
@@ -1305,7 +1343,16 @@ void pmccntr_op_start(CPUARMState *env)
             eff_cycles /= 64;
         }
 
-        env->cp15.c15_ccnt = eff_cycles - env->cp15.c15_ccnt_delta;
+        uint64_t new_pmccntr = eff_cycles - env->cp15.c15_ccnt_delta;
+
+        uint64_t overflow_mask = env->cp15.c9_pmcr & PMCRLC ? \
+                                 1ull << 63 : 1ull << 31;
+        if (env->cp15.c15_ccnt & ~new_pmccntr & overflow_mask) {
+            env->cp15.c9_pmovsr |= (1 << 31);
+            pmu_update_irq(env);
+        }
+
+        env->cp15.c15_ccnt = new_pmccntr;
     }
     env->cp15.c15_ccnt_delta = cycles;
 }
@@ -1318,13 +1365,27 @@ void pmccntr_op_start(CPUARMState *env)
 void pmccntr_op_finish(CPUARMState *env)
 {
     if (pmu_counter_enabled(env, 31)) {
-        uint64_t prev_cycles = env->cp15.c15_ccnt_delta;
+#ifndef CONFIG_USER_ONLY
+        /* Calculate when the counter will next overflow */
+        uint64_t remaining_cycles = -env->cp15.c15_ccnt;
+        if (!(env->cp15.c9_pmcr & PMCRLC)) {
+            remaining_cycles = (uint32_t)remaining_cycles;
+        }
+        int64_t overflow_in = cycles_ns_per(remaining_cycles);
 
+        if (overflow_in > 0) {
+            int64_t overflow_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                overflow_in;
+            ARMCPU *cpu = arm_env_get_cpu(env);
+            timer_mod_anticipate_ns(cpu->pmu_timer, overflow_at);
+        }
+#endif
+
+        uint64_t prev_cycles = env->cp15.c15_ccnt_delta;
         if (env->cp15.c9_pmcr & PMCRD) {
             /* Increment once every 64 processor clock cycles */
             prev_cycles /= 64;
         }
-
         env->cp15.c15_ccnt_delta = prev_cycles - env->cp15.c15_ccnt;
     }
 }
@@ -1340,8 +1401,13 @@ static void pmevcntr_op_start(CPUARMState *env, uint8_t counter)
     }
 
     if (pmu_counter_enabled(env, counter)) {
-        env->cp15.c14_pmevcntr[counter] =
-            count - env->cp15.c14_pmevcntr_delta[counter];
+        uint32_t new_pmevcntr = count - env->cp15.c14_pmevcntr_delta[counter];
+
+        if (env->cp15.c14_pmevcntr[counter] & ~new_pmevcntr & INT32_MIN) {
+            env->cp15.c9_pmovsr |= (1 << counter);
+            pmu_update_irq(env);
+        }
+        env->cp15.c14_pmevcntr[counter] = new_pmevcntr;
     }
     env->cp15.c14_pmevcntr_delta[counter] = count;
 }
@@ -1349,6 +1415,21 @@ static void pmevcntr_op_start(CPUARMState *env, uint8_t counter)
 static void pmevcntr_op_finish(CPUARMState *env, uint8_t counter)
 {
     if (pmu_counter_enabled(env, counter)) {
+#ifndef CONFIG_USER_ONLY
+        uint16_t event = env->cp15.c14_pmevtyper[counter] & PMXEVTYPER_EVTCOUNT;
+        uint16_t event_idx = supported_event_map[event];
+        uint64_t delta = UINT32_MAX -
+            (uint32_t)env->cp15.c14_pmevcntr[counter] + 1;
+        int64_t overflow_in = pm_events[event_idx].ns_per_count(delta);
+
+        if (overflow_in > 0) {
+            int64_t overflow_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                overflow_in;
+            ARMCPU *cpu = arm_env_get_cpu(env);
+            timer_mod_anticipate_ns(cpu->pmu_timer, overflow_at);
+        }
+#endif
+
         env->cp15.c14_pmevcntr_delta[counter] -=
             env->cp15.c14_pmevcntr[counter];
     }
@@ -1379,6 +1460,20 @@ void pmu_pre_el_change(ARMCPU *cpu, void *ignored)
 
 void pmu_post_el_change(ARMCPU *cpu, void *ignored)
 {
+    pmu_op_finish(&cpu->env);
+}
+
+void arm_pmu_timer_cb(void *opaque)
+{
+    ARMCPU *cpu = opaque;
+
+    /*
+     * Update all the counter values based on the current underlying counts,
+     * triggering interrupts to be raised, if necessary. pmu_op_finish() also
+     * has the effect of setting the cpu->pmu_timer to the next earliest time a
+     * counter may expire.
+     */
+    pmu_op_start(&cpu->env);
     pmu_op_finish(&cpu->env);
 }
 
@@ -1418,7 +1513,20 @@ static void pmswinc_write(CPUARMState *env, const ARMCPRegInfo *ri,
                 /* counter is SW_INCR */
                 (env->cp15.c14_pmevtyper[i] & PMXEVTYPER_EVTCOUNT) == 0x0) {
             pmevcntr_op_start(env, i);
-            env->cp15.c14_pmevcntr[i]++;
+
+            /*
+             * Detect if this write causes an overflow since we can't predict
+             * PMSWINC overflows like we can for other events
+             */
+            uint32_t new_pmswinc = env->cp15.c14_pmevcntr[i] + 1;
+
+            if (env->cp15.c14_pmevcntr[i] & ~new_pmswinc & INT32_MIN) {
+                env->cp15.c9_pmovsr |= (1 << i);
+                pmu_update_irq(env);
+            }
+
+            env->cp15.c14_pmevcntr[i] = new_pmswinc;
+
             pmevcntr_op_finish(env, i);
         }
     }
@@ -1503,6 +1611,7 @@ static void pmovsr_write(CPUARMState *env, const ARMCPRegInfo *ri,
 {
     value &= pmu_counter_mask(env);
     env->cp15.c9_pmovsr &= ~value;
+    pmu_update_irq(env);
 }
 
 static void pmovsset_write(CPUARMState *env, const ARMCPRegInfo *ri,
@@ -1510,6 +1619,7 @@ static void pmovsset_write(CPUARMState *env, const ARMCPRegInfo *ri,
 {
     value &= pmu_counter_mask(env);
     env->cp15.c9_pmovsr |= value;
+    pmu_update_irq(env);
 }
 
 static void pmevtyper_write(CPUARMState *env, const ARMCPRegInfo *ri,
@@ -1696,6 +1806,7 @@ static void pmintenset_write(CPUARMState *env, const ARMCPRegInfo *ri,
     /* We have no event counters so only the C bit can be changed */
     value &= pmu_counter_mask(env);
     env->cp15.c9_pminten |= value;
+    pmu_update_irq(env);
 }
 
 static void pmintenclr_write(CPUARMState *env, const ARMCPRegInfo *ri,
@@ -1703,6 +1814,7 @@ static void pmintenclr_write(CPUARMState *env, const ARMCPRegInfo *ri,
 {
     value &= pmu_counter_mask(env);
     env->cp15.c9_pminten &= ~value;
+    pmu_update_irq(env);
 }
 
 static void vbar_write(CPUARMState *env, const ARMCPRegInfo *ri,
@@ -1746,6 +1858,9 @@ static void scr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
     }
     if (cpu_isar_feature(aa64_lor, cpu)) {
         valid_mask |= SCR_TLOR;
+    }
+    if (cpu_isar_feature(aa64_pauth, cpu)) {
+        valid_mask |= SCR_API | SCR_APK;
     }
 
     /* Clear all-context RES0 bits.  */
@@ -1841,7 +1956,7 @@ static const ARMCPRegInfo v7_cp_reginfo[] = {
       .fieldoffset = offsetof(CPUARMState, cp15.c9_pmcnten),
       .writefn = pmcntenclr_write },
     { .name = "PMOVSR", .cp = 15, .crn = 9, .crm = 12, .opc1 = 0, .opc2 = 3,
-      .access = PL0_RW,
+      .access = PL0_RW, .type = ARM_CP_IO,
       .fieldoffset = offsetoflow32(CPUARMState, cp15.c9_pmovsr),
       .accessfn = pmreg_access,
       .writefn = pmovsr_write,
@@ -1849,16 +1964,18 @@ static const ARMCPRegInfo v7_cp_reginfo[] = {
     { .name = "PMOVSCLR_EL0", .state = ARM_CP_STATE_AA64,
       .opc0 = 3, .opc1 = 3, .crn = 9, .crm = 12, .opc2 = 3,
       .access = PL0_RW, .accessfn = pmreg_access,
-      .type = ARM_CP_ALIAS,
+      .type = ARM_CP_ALIAS | ARM_CP_IO,
       .fieldoffset = offsetof(CPUARMState, cp15.c9_pmovsr),
       .writefn = pmovsr_write,
       .raw_writefn = raw_write },
     { .name = "PMSWINC", .cp = 15, .crn = 9, .crm = 12, .opc1 = 0, .opc2 = 4,
-      .access = PL0_W, .accessfn = pmreg_access_swinc, .type = ARM_CP_NO_RAW,
+      .access = PL0_W, .accessfn = pmreg_access_swinc,
+      .type = ARM_CP_NO_RAW | ARM_CP_IO,
       .writefn = pmswinc_write },
     { .name = "PMSWINC_EL0", .state = ARM_CP_STATE_AA64,
       .opc0 = 3, .opc1 = 3, .crn = 9, .crm = 12, .opc2 = 4,
-      .access = PL0_W, .accessfn = pmreg_access_swinc, .type = ARM_CP_NO_RAW,
+      .access = PL0_W, .accessfn = pmreg_access_swinc,
+      .type = ARM_CP_NO_RAW | ARM_CP_IO,
       .writefn = pmswinc_write },
     { .name = "PMSELR", .cp = 15, .crn = 9, .crm = 12, .opc1 = 0, .opc2 = 5,
       .access = PL0_RW, .type = ARM_CP_ALIAS,
@@ -2045,14 +2162,14 @@ static const ARMCPRegInfo pmovsset_cp_reginfo[] = {
     /* PMOVSSET is not implemented in v7 before v7ve */
     { .name = "PMOVSSET", .cp = 15, .opc1 = 0, .crn = 9, .crm = 14, .opc2 = 3,
       .access = PL0_RW, .accessfn = pmreg_access,
-      .type = ARM_CP_ALIAS,
+      .type = ARM_CP_ALIAS | ARM_CP_IO,
       .fieldoffset = offsetoflow32(CPUARMState, cp15.c9_pmovsr),
       .writefn = pmovsset_write,
       .raw_writefn = raw_write },
     { .name = "PMOVSSET_EL0", .state = ARM_CP_STATE_AA64,
       .opc0 = 3, .opc1 = 3, .crn = 9, .crm = 14, .opc2 = 3,
       .access = PL0_RW, .accessfn = pmreg_access,
-      .type = ARM_CP_ALIAS,
+      .type = ARM_CP_ALIAS | ARM_CP_IO,
       .fieldoffset = offsetof(CPUARMState, cp15.c9_pmovsr),
       .writefn = pmovsset_write,
       .raw_writefn = raw_write },
@@ -4443,6 +4560,9 @@ static void hcr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
     }
     if (cpu_isar_feature(aa64_lor, cpu)) {
         valid_mask |= HCR_TLOR;
+    }
+    if (cpu_isar_feature(aa64_pauth, cpu)) {
+        valid_mask |= HCR_API | HCR_APK;
     }
 
     /* Clear RES0 bits.  */
@@ -7077,7 +7197,7 @@ uint32_t HELPER(rbit)(uint32_t x)
     return revbit32(x);
 }
 
-#if defined(CONFIG_USER_ONLY)
+#ifdef CONFIG_USER_ONLY
 
 /* These should probably raise undefined insn exceptions.  */
 void HELPER(v7m_msr)(CPUARMState *env, uint32_t reg, uint32_t val)
@@ -9451,6 +9571,7 @@ void arm_cpu_do_interrupt(CPUState *cs)
         cs->interrupt_request |= CPU_INTERRUPT_EXITTB;
     }
 }
+#endif /* !CONFIG_USER_ONLY */
 
 /* Return the exception level which controls this address translation regime */
 static inline uint32_t regime_el(CPUARMState *env, ARMMMUIdx mmu_idx)
@@ -9479,6 +9600,8 @@ static inline uint32_t regime_el(CPUARMState *env, ARMMMUIdx mmu_idx)
         g_assert_not_reached();
     }
 }
+
+#ifndef CONFIG_USER_ONLY
 
 /* Return the SCTLR value which controls this address translation regime */
 static inline uint32_t regime_sctlr(CPUARMState *env, ARMMMUIdx mmu_idx)
@@ -9535,6 +9658,22 @@ static inline bool regime_translation_big_endian(CPUARMState *env,
     return (regime_sctlr(env, mmu_idx) & SCTLR_EE) != 0;
 }
 
+/* Return the TTBR associated with this translation regime */
+static inline uint64_t regime_ttbr(CPUARMState *env, ARMMMUIdx mmu_idx,
+                                   int ttbrn)
+{
+    if (mmu_idx == ARMMMUIdx_S2NS) {
+        return env->cp15.vttbr_el2;
+    }
+    if (ttbrn == 0) {
+        return env->cp15.ttbr0_el[regime_el(env, mmu_idx)];
+    } else {
+        return env->cp15.ttbr1_el[regime_el(env, mmu_idx)];
+    }
+}
+
+#endif /* !CONFIG_USER_ONLY */
+
 /* Return the TCR controlling this translation regime */
 static inline TCR *regime_tcr(CPUARMState *env, ARMMMUIdx mmu_idx)
 {
@@ -9553,20 +9692,6 @@ static inline ARMMMUIdx stage_1_mmu_idx(ARMMMUIdx mmu_idx)
         mmu_idx += (ARMMMUIdx_S1NSE0 - ARMMMUIdx_S12NSE0);
     }
     return mmu_idx;
-}
-
-/* Return the TTBR associated with this translation regime */
-static inline uint64_t regime_ttbr(CPUARMState *env, ARMMMUIdx mmu_idx,
-                                   int ttbrn)
-{
-    if (mmu_idx == ARMMMUIdx_S2NS) {
-        return env->cp15.vttbr_el2;
-    }
-    if (ttbrn == 0) {
-        return env->cp15.ttbr0_el[regime_el(env, mmu_idx)];
-    } else {
-        return env->cp15.ttbr1_el[regime_el(env, mmu_idx)];
-    }
 }
 
 /* Return true if the translation regime is using LPAE format page tables */
@@ -9594,6 +9719,7 @@ bool arm_s1_regime_using_lpae_format(CPUARMState *env, ARMMMUIdx mmu_idx)
     return regime_using_lpae_format(env, mmu_idx);
 }
 
+#ifndef CONFIG_USER_ONLY
 static inline bool regime_is_user(CPUARMState *env, ARMMMUIdx mmu_idx)
 {
     switch (mmu_idx) {
@@ -10299,6 +10425,7 @@ static uint8_t convert_stage2_attrs(CPUARMState *env, uint8_t s2attrs)
 
     return (hiattr << 6) | (hihint << 4) | (loattr << 2) | lohint;
 }
+#endif /* !CONFIG_USER_ONLY */
 
 ARMVAParameters aa64_va_parameters_both(CPUARMState *env, uint64_t va,
                                         ARMMMUIdx mmu_idx)
@@ -10370,6 +10497,7 @@ ARMVAParameters aa64_va_parameters(CPUARMState *env, uint64_t va,
     return ret;
 }
 
+#ifndef CONFIG_USER_ONLY
 static ARMVAParameters aa32_va_parameters(CPUARMState *env, uint32_t va,
                                           ARMMMUIdx mmu_idx)
 {
@@ -10447,7 +10575,7 @@ static bool get_phys_addr_lpae(CPUARMState *env, target_ulong address,
     uint64_t ttbr;
     hwaddr descaddr, indexmask, indexmask_grainsize;
     uint32_t tableattrs;
-    target_ulong page_size, top_bits;
+    target_ulong page_size;
     uint32_t attrs;
     int32_t stride;
     int addrsize, inputsize;
@@ -10457,6 +10585,7 @@ static bool get_phys_addr_lpae(CPUARMState *env, target_ulong address,
     bool ttbr1_valid;
     uint64_t descaddrmask;
     bool aarch64 = arm_el_is_aa64(env, el);
+    bool guarded = false;
 
     /* TODO:
      * This code does not handle the different format TCR for VTCR_EL2.
@@ -10487,12 +10616,19 @@ static bool get_phys_addr_lpae(CPUARMState *env, target_ulong address,
      * We determined the region when collecting the parameters, but we
      * have not yet validated that the address is valid for the region.
      * Extract the top bits and verify that they all match select.
+     *
+     * For aa32, if inputsize == addrsize, then we have selected the
+     * region by exclusion in aa32_va_parameters and there is no more
+     * validation to do here.
      */
-    top_bits = sextract64(address, inputsize, addrsize - inputsize);
-    if (-top_bits != param.select || (param.select && !ttbr1_valid)) {
-        /* In the gap between the two regions, this is a Translation fault */
-        fault_type = ARMFault_Translation;
-        goto do_fault;
+    if (inputsize < addrsize) {
+        target_ulong top_bits = sextract64(address, inputsize,
+                                           addrsize - inputsize);
+        if (-top_bits != param.select || (param.select && !ttbr1_valid)) {
+            /* The gap between the two regions is a Translation fault */
+            fault_type = ARMFault_Translation;
+            goto do_fault;
+        }
     }
 
     if (param.using64k) {
@@ -10629,6 +10765,7 @@ static bool get_phys_addr_lpae(CPUARMState *env, target_ulong address,
         }
         /* Merge in attributes from table descriptors */
         attrs |= nstable << 3; /* NS */
+        guarded = extract64(descriptor, 50, 1);  /* GP */
         if (param.hpd) {
             /* HPD disables all the table attributes except NSTable.  */
             break;
@@ -10673,6 +10810,10 @@ static bool get_phys_addr_lpae(CPUARMState *env, target_ulong address,
          * regime, because the attribute will already be non-secure.
          */
         txattrs->secure = false;
+    }
+    /* When in aarch64 mode, and BTI is enabled, remember GP in the IOTLB.  */
+    if (aarch64 && guarded && cpu_isar_feature(aa64_bti, cpu)) {
+        txattrs->target_tlb_bit0 = true;
     }
 
     if (cacheattrs != NULL) {
@@ -11071,17 +11212,18 @@ static void v8m_security_lookup(CPUARMState *env, uint32_t address,
                 }
             }
         }
-
-        /* The IDAU will override the SAU lookup results if it specifies
-         * higher security than the SAU does.
-         */
-        if (!idau_ns) {
-            if (sattrs->ns || (!idau_nsc && sattrs->nsc)) {
-                sattrs->ns = false;
-                sattrs->nsc = idau_nsc;
-            }
-        }
         break;
+    }
+
+    /*
+     * The IDAU will override the SAU lookup results if it specifies
+     * higher security than the SAU does.
+     */
+    if (!idau_ns) {
+        if (sattrs->ns || (!idau_nsc && sattrs->nsc)) {
+            sattrs->ns = false;
+            sattrs->nsc = idau_nsc;
+        }
     }
 }
 
@@ -12495,6 +12637,12 @@ void HELPER(vfp_set_fpscr)(CPUARMState *env, uint32_t val)
         val &= ~FPCR_FZ16;
     }
 
+    /*
+     * We don't implement trapped exception handling, so the
+     * trap enable bits are all RAZ/WI (not RES0!)
+     */
+    val &= ~(FPCR_IDE | FPCR_IXE | FPCR_UFE | FPCR_OFE | FPCR_DZE | FPCR_IOE);
+
     changed = env->vfp.xregs[ARM_VFP_FPSCR];
     env->vfp.xregs[ARM_VFP_FPSCR] = (val & 0xffc8ffff);
     env->vfp.vec_len = (val >> 16) & 7;
@@ -13607,15 +13755,12 @@ void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
 
     if (is_a64(env)) {
         ARMCPU *cpu = arm_env_get_cpu(env);
+        uint64_t sctlr;
 
         *pc = env->pc;
         flags = FIELD_DP32(flags, TBFLAG_ANY, AARCH64_STATE, 1);
 
-#ifndef CONFIG_USER_ONLY
-        /*
-         * Get control bits for tagged addresses.  Note that the
-         * translator only uses this for instruction addresses.
-         */
+        /* Get control bits for tagged addresses.  */
         {
             ARMMMUIdx stage1 = stage_1_mmu_idx(mmu_idx);
             ARMVAParameters p0 = aa64_va_parameters_both(env, 0, stage1);
@@ -13632,8 +13777,8 @@ void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
             }
 
             flags = FIELD_DP32(flags, TBFLAG_A64, TBII, tbii);
+            flags = FIELD_DP32(flags, TBFLAG_A64, TBID, tbid);
         }
-#endif
 
         if (cpu_isar_feature(aa64_sve, cpu)) {
             int sve_el = sve_exception_el(env, current_el);
@@ -13651,6 +13796,12 @@ void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
             flags = FIELD_DP32(flags, TBFLAG_A64, ZCR_LEN, zcr_len);
         }
 
+        if (current_el == 0) {
+            /* FIXME: ARMv8.1-VHE S2 translation regime.  */
+            sctlr = env->cp15.sctlr_el[1];
+        } else {
+            sctlr = env->cp15.sctlr_el[current_el];
+        }
         if (cpu_isar_feature(aa64_pauth, cpu)) {
             /*
              * In order to save space in flags, we record only whether
@@ -13658,16 +13809,17 @@ void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
              * a nop, or "active" when some action must be performed.
              * The decision of which action to take is left to a helper.
              */
-            uint64_t sctlr;
-            if (current_el == 0) {
-                /* FIXME: ARMv8.1-VHE S2 translation regime.  */
-                sctlr = env->cp15.sctlr_el[1];
-            } else {
-                sctlr = env->cp15.sctlr_el[current_el];
-            }
             if (sctlr & (SCTLR_EnIA | SCTLR_EnIB | SCTLR_EnDA | SCTLR_EnDB)) {
                 flags = FIELD_DP32(flags, TBFLAG_A64, PAUTH_ACTIVE, 1);
             }
+        }
+
+        if (cpu_isar_feature(aa64_bti, cpu)) {
+            /* Note that SCTLR_EL[23].BT == SCTLR_BT1.  */
+            if (sctlr & (current_el == 0 ? SCTLR_BT0 : SCTLR_BT1)) {
+                flags = FIELD_DP32(flags, TBFLAG_A64, BT, 1);
+            }
+            flags = FIELD_DP32(flags, TBFLAG_A64, BTYPE, env->btype);
         }
     } else {
         *pc = env->regs[15];

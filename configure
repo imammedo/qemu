@@ -348,7 +348,6 @@ docs=""
 fdt=""
 netmap="no"
 sdl=""
-sdlabi=""
 sdl_image=""
 virtfs=""
 mpath=""
@@ -577,7 +576,6 @@ query_pkg_config() {
     "${pkg_config_exe}" ${QEMU_PKG_CONFIG_FLAGS} "$@"
 }
 pkg_config=query_pkg_config
-sdl_config="${SDL_CONFIG-${cross_prefix}sdl-config}"
 sdl2_config="${SDL2_CONFIG-${cross_prefix}sdl2-config}"
 
 # If the user hasn't specified ARFLAGS, default to 'rv', just as make does.
@@ -1043,8 +1041,6 @@ for opt do
   --disable-sdl) sdl="no"
   ;;
   --enable-sdl) sdl="yes"
-  ;;
-  --with-sdlabi=*) sdlabi="$optarg"
   ;;
   --disable-sdl-image) sdl_image="no"
   ;;
@@ -1711,7 +1707,6 @@ disabled with --disable-FEATURE, default is enabled if available:
   nettle          nettle cryptography support
   gcrypt          libgcrypt cryptography support
   sdl             SDL UI
-  --with-sdlabi     select preferred SDL ABI 1.2 or 2.0
   sdl_image       SDL Image support for icons
   gtk             gtk UI
   vte             vte support for the gtk UI
@@ -2364,7 +2359,6 @@ if test "$xen" != "no" ; then
     fi
     QEMU_CFLAGS="$QEMU_CFLAGS $($pkg_config --cflags $xen_pc)"
     libs_softmmu="$($pkg_config --libs $xen_pc) $libs_softmmu"
-    LDFLAGS="$($pkg_config --libs $xen_pc) $LDFLAGS"
   else
 
     xen_libs="-lxenstore -lxenctrl -lxenguest"
@@ -2479,7 +2473,6 @@ int main(void) {
   xenforeignmemory_handle *xfmem;
   xenevtchn_handle *xe;
   xengnttab_handle *xg;
-  xen_domain_handle_t handle;
   xengnttab_grant_copy_segment_t* seg = NULL;
 
   xs_daemon_open();
@@ -2489,7 +2482,6 @@ int main(void) {
   xc_domain_add_to_physmap(0, 0, XENMAPSPACE_gmfn, 0, 0);
   xc_hvm_inject_msi(xc, 0, 0xf0000000, 0x00000000);
   xc_hvm_create_ioreq_server(xc, 0, HVM_IOREQSRV_BUFIOREQ_ATOMIC, NULL);
-  xc_domain_create(xc, 0, handle, 0, NULL, NULL);
 
   xfmem = xenforeignmemory_open(0, 0);
   xenforeignmemory_map(xfmem, 0, 0, 0, 0, 0);
@@ -2531,7 +2523,6 @@ int main(void) {
   xenforeignmemory_handle *xfmem;
   xenevtchn_handle *xe;
   xengnttab_handle *xg;
-  xen_domain_handle_t handle;
 
   xs_daemon_open();
 
@@ -2540,7 +2531,6 @@ int main(void) {
   xc_domain_add_to_physmap(0, 0, XENMAPSPACE_gmfn, 0, 0);
   xc_hvm_inject_msi(xc, 0, 0xf0000000, 0x00000000);
   xc_hvm_create_ioreq_server(xc, 0, HVM_IOREQSRV_BUFIOREQ_ATOMIC, NULL);
-  xc_domain_create(xc, 0, handle, 0, NULL, NULL);
 
   xfmem = xenforeignmemory_open(0, 0);
   xenforeignmemory_map(xfmem, 0, 0, 0, 0, 0);
@@ -2557,21 +2547,6 @@ EOF
         compile_prog "" "$xen_libs $xen_stable_libs"
       then
       xen_ctrl_version=40701
-      xen=yes
-    elif
-        cat > $TMPC <<EOF &&
-#include <xenctrl.h>
-#include <stdint.h>
-int main(void) {
-  xc_interface *xc = NULL;
-  xen_domain_handle_t handle;
-  xc_domain_create(xc, 0, handle, 0, NULL, NULL);
-  return 0;
-}
-EOF
-        compile_prog "" "$xen_libs"
-      then
-      xen_ctrl_version=40700
       xen=yes
 
     # Xen 4.6
@@ -2927,37 +2902,11 @@ fi
 
 sdl_probe ()
 {
-  sdl_too_old=no
-  if test "$sdlabi" = ""; then
-      if $pkg_config --exists "sdl2"; then
-          sdlabi=2.0
-      elif $pkg_config --exists "sdl"; then
-          sdlabi=1.2
-      else
-          sdlabi=2.0
-      fi
-  fi
-
-  if test $sdlabi = "2.0"; then
-      sdl_config=$sdl2_config
-      sdlname=sdl2
-      sdlconfigname=sdl2_config
-  elif test $sdlabi = "1.2"; then
-      sdlname=sdl
-      sdlconfigname=sdl_config
-  else
-      error_exit "Unknown sdlabi $sdlabi, must be 1.2 or 2.0"
-  fi
-
-  if test "$(basename $sdl_config)" != $sdlconfigname && ! has ${sdl_config}; then
-    sdl_config=$sdlconfigname
-  fi
-
-  if $pkg_config $sdlname --exists; then
-    sdlconfig="$pkg_config $sdlname"
+  if $pkg_config sdl2 --exists; then
+    sdlconfig="$pkg_config sdl2"
     sdlversion=$($sdlconfig --modversion 2>/dev/null)
   elif has ${sdl_config}; then
-    sdlconfig="$sdl_config"
+    sdlconfig="$sdl2_config"
     sdlversion=$($sdlconfig --version)
   else
     if test "$sdl" = "yes" ; then
@@ -2979,8 +2928,8 @@ EOF
   sdl_cflags=$($sdlconfig --cflags 2>/dev/null)
   sdl_cflags="$sdl_cflags -Wno-undef"  # workaround 2.0.8 bug
   if test "$static" = "yes" ; then
-    if $pkg_config $sdlname --exists; then
-      sdl_libs=$($pkg_config $sdlname --static --libs 2>/dev/null)
+    if $pkg_config sdl2 --exists; then
+      sdl_libs=$($pkg_config sdl2 --static --libs 2>/dev/null)
     else
       sdl_libs=$($sdlconfig --static-libs 2>/dev/null)
     fi
@@ -2988,11 +2937,7 @@ EOF
     sdl_libs=$($sdlconfig --libs 2>/dev/null)
   fi
   if compile_prog "$sdl_cflags" "$sdl_libs" ; then
-    if test $(echo $sdlversion | sed 's/[^0-9]//g') -lt 121 ; then
-      sdl_too_old=yes
-    else
-      sdl=yes
-    fi
+    sdl=yes
 
     # static link with sdl ? (note: sdl.pc's --static --libs is broken)
     if test "$sdl" = "yes" -a "$static" = "yes" ; then
@@ -3008,7 +2953,7 @@ EOF
     fi # static link
   else # sdl not found
     if test "$sdl" = "yes" ; then
-      feature_not_found "sdl" "Install SDL devel"
+      feature_not_found "sdl" "Install SDL2 devel"
     fi
     sdl=no
   fi # sdl compile test
@@ -4047,6 +3992,16 @@ EOF
   fi
 fi
 
+if test "$opengl" = "yes" -a "$have_x11" = "yes"; then
+  for target in $target_list; do
+    case $target in
+      lm32-softmmu) # milkymist-tmu2 requires X11 and OpenGL
+        need_x11=yes
+      ;;
+    esac
+  done
+fi
+
 ##########################################
 # libxml2 probe
 if test "$libxml2" != "no" ; then
@@ -4267,6 +4222,17 @@ EOF
 
 if compile_prog "" "" ; then
   signalfd=yes
+fi
+
+# check if optreset global is declared by <getopt.h>
+optreset="no"
+cat > $TMPC << EOF
+#include <getopt.h>
+int main(void) { return optreset; }
+EOF
+
+if compile_prog "" "" ; then
+  optreset=yes
 fi
 
 # check if eventfd is supported
@@ -4646,9 +4612,17 @@ elif compile_prog "" "$pthread_lib -lrt" ; then
   libs_qga="$libs_qga -lrt"
 fi
 
-if test "$darwin" != "yes" -a "$mingw32" != "yes" -a "$solaris" != yes -a \
-        "$haiku" != "yes" ; then
+# Check whether we need to link libutil for openpty()
+cat > $TMPC << EOF
+extern int openpty(int *am, int *as, char *name, void *termp, void *winp);
+int main(void) { return openpty(0, 0, 0, 0, 0); }
+EOF
+
+if ! compile_prog "" "" ; then
+  if compile_prog "" "-lutil" ; then
     libs_softmmu="-lutil $libs_softmmu"
+    libs_tools="-lutil $libs_tools"
+  fi
 fi
 
 ##########################################
@@ -5816,8 +5790,8 @@ if test "$want_tools" = "yes" ; then
   if [ "$ivshmem" = "yes" ]; then
     tools="ivshmem-client\$(EXESUF) ivshmem-server\$(EXESUF) $tools"
   fi
-  if [ "$posix" = "yes" ] && [ "$curl" = "yes" ]; then
-    tools="elf2dmp $tools"
+  if [ "$curl" = "yes" ]; then
+      tools="elf2dmp\$(EXESUF) $tools"
   fi
 fi
 if test "$softmmu" = yes ; then
@@ -6210,16 +6184,6 @@ echo "docker            $docker"
 echo "libpmem support   $libpmem"
 echo "libudev           $libudev"
 
-if test "$sdl_too_old" = "yes"; then
-echo "-> Your SDL version is too old - please upgrade to have SDL support"
-fi
-
-if test "$sdlabi" = "1.2"; then
-    echo
-    echo "WARNING: Use of SDL 1.2 is deprecated and will be removed in"
-    echo "WARNING: future releases. Please switch to using SDL 2.0"
-fi
-
 if test "$supported_cpu" = "no"; then
     echo
     echo "WARNING: SUPPORT FOR THIS HOST CPU WILL GO AWAY IN FUTURE RELEASES!"
@@ -6424,7 +6388,6 @@ if test "$have_x11" = "yes" -a "$need_x11" = "yes"; then
 fi
 if test "$sdl" = "yes" ; then
   echo "CONFIG_SDL=m" >> $config_host_mak
-  echo "CONFIG_SDLABI=$sdlabi" >> $config_host_mak
   echo "SDL_CFLAGS=$sdl_cflags" >> $config_host_mak
   echo "SDL_LIBS=$sdl_libs" >> $config_host_mak
   if test "$sdl_image" = "yes" ; then
@@ -6642,6 +6605,9 @@ if test "$membarrier" = "yes" ; then
 fi
 if test "$signalfd" = "yes" ; then
   echo "CONFIG_SIGNALFD=y" >> $config_host_mak
+fi
+if test "$optreset" = "yes" ; then
+  echo "HAVE_OPTRESET=y" >> $config_host_mak
 fi
 if test "$tcg" = "yes"; then
   echo "CONFIG_TCG=y" >> $config_host_mak
@@ -7171,14 +7137,14 @@ TARGET_ABI_DIR=""
 case "$target_name" in
   i386)
     mttcg="yes"
-    gdb_xml_files="i386-32bit.xml i386-32bit-core.xml i386-32bit-sse.xml"
+	gdb_xml_files="i386-32bit.xml"
     target_compiler=$cross_cc_i386
     target_compiler_cflags=$cross_cc_ccflags_i386
   ;;
   x86_64)
     TARGET_BASE_ARCH=i386
     mttcg="yes"
-    gdb_xml_files="i386-64bit.xml i386-64bit-core.xml i386-64bit-sse.xml"
+	gdb_xml_files="i386-64bit.xml"
     target_compiler=$cross_cc_x86_64
   ;;
   alpha)
