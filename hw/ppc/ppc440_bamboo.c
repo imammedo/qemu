@@ -207,7 +207,7 @@ static void bamboo_init(MachineState *machine)
     /* SDRAM controller */
     memset(ram_bases, 0, sizeof(ram_bases));
     memset(ram_sizes, 0, sizeof(ram_sizes));
-    ram_size = ppc4xx_sdram_adjust(ram_size, PPC440EP_SDRAM_NR_BANKS,
+    ram_size = ppc4xx_sdram_adjust(machine, ram_size, PPC440EP_SDRAM_NR_BANKS,
                                    ram_memories,
                                    ram_bases, ram_sizes,
                                    ppc440ep_sdram_bank_sizes);

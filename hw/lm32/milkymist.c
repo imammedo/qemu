@@ -89,7 +89,7 @@ milkymist_init(MachineState *machine)
     int kernel_size;
     DriveInfo *dinfo;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *phys_sdram = g_new(MemoryRegion, 1);
+    MemoryRegion *phys_sdram;
     qemu_irq irq[32];
     int i;
     char *bios_filename;
@@ -115,8 +115,9 @@ milkymist_init(MachineState *machine)
 
     cpu_lm32_set_phys_msb_ignore(env, 1);
 
-    memory_region_allocate_system_memory(phys_sdram, NULL, "milkymist.sdram",
-                                         sdram_size);
+    phys_sdram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                      "milkymist.sdram",
+                                                      sdram_size);
     memory_region_add_subregion(address_space_mem, sdram_base, phys_sdram);
 
     dinfo = drive_get(IF_PFLASH, 0, 0);

@@ -1758,9 +1758,8 @@ void pc_memory_init(PCMachineState *pcms,
      * aliases to address portions of it, mostly for backwards compatibility
      * with older qemus that used qemu_ram_alloc().
      */
-    ram = g_malloc(sizeof(*ram));
-    memory_region_allocate_system_memory(ram, NULL, "pc.ram",
-                                         machine->ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "pc.ram",
+                                               machine->ram_size);
     *ram_memory = ram;
     ram_below_4g = g_malloc(sizeof(*ram_below_4g));
     memory_region_init_alias(ram_below_4g, NULL, "ram-below-4g", ram,

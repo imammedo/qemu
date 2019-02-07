@@ -158,7 +158,7 @@ static void virtio_ccw_register_hcalls(void)
 #define KVM_MEM_MAX_NR_PAGES ((1ULL << 31) - 1)
 #define SEG_MSK (~0xfffffULL)
 #define KVM_SLOT_MAX_BYTES ((KVM_MEM_MAX_NR_PAGES * TARGET_PAGE_SIZE) & SEG_MSK)
-static void s390_memory_init(ram_addr_t mem_size)
+static void s390_memory_init(MachineState *ms, ram_addr_t mem_size)
 {
     MemoryRegion *sysmem = get_system_memory();
     ram_addr_t chunk, offset = 0;
@@ -168,12 +168,12 @@ static void s390_memory_init(ram_addr_t mem_size)
     /* allocate RAM for core */
     name = g_strdup_printf("s390.ram");
     while (mem_size) {
-        MemoryRegion *ram = g_new(MemoryRegion, 1);
+        MemoryRegion *ram;
         uint64_t size = mem_size;
 
         /* KVM does not allow memslots >= 8 TB */
         chunk = MIN(size, KVM_SLOT_MAX_BYTES);
-        memory_region_allocate_system_memory(ram, NULL, name, chunk);
+        ram = memory_region_allocate_system_memory(OBJECT(ms), name, chunk);
         memory_region_add_subregion(sysmem, offset, ram);
         mem_size -= chunk;
         offset += chunk;
@@ -253,7 +253,7 @@ static void ccw_init(MachineState *machine)
     DeviceState *dev;
 
     s390_sclp_init();
-    s390_memory_init(machine->ram_size);
+    s390_memory_init(machine, machine->ram_size);
 
     /* init CPUs (incl. CPU model) early so s390_has_feature() works */
     s390_init_cpus(machine);

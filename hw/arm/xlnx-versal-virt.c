@@ -30,7 +30,7 @@ typedef struct VersalVirt {
     MachineState parent_obj;
 
     Versal soc;
-    MemoryRegion mr_ddr;
+    MemoryRegion *mr_ddr;
 
     void *fdt;
     int fdt_size;
@@ -414,12 +414,12 @@ static void versal_virt_init(MachineState *machine)
         psci_conduit = QEMU_PSCI_CONDUIT_SMC;
     }
 
-    memory_region_allocate_system_memory(&s->mr_ddr, NULL, "ddr",
-                                         machine->ram_size);
+    s->mr_ddr = memory_region_allocate_system_memory(OBJECT(s), "ddr",
+                                                     machine->ram_size);
 
     sysbus_init_child_obj(OBJECT(machine), "xlnx-ve", &s->soc,
                           sizeof(s->soc), TYPE_XLNX_VERSAL);
-    object_property_set_link(OBJECT(&s->soc), OBJECT(&s->mr_ddr),
+    object_property_set_link(OBJECT(&s->soc), OBJECT(s->mr_ddr),
                              "ddr", &error_abort);
     object_property_set_int(OBJECT(&s->soc), psci_conduit,
                             "psci-conduit", &error_abort);

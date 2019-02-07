@@ -671,13 +671,14 @@ void ppc4xx_sdram_init (CPUPPCState *env, qemu_irq irq, int nbanks,
  * The 4xx SDRAM controller supports a small number of banks, and each bank
  * must be one of a small set of sizes. The number of banks and the supported
  * sizes varies by SoC. */
-ram_addr_t ppc4xx_sdram_adjust(ram_addr_t ram_size, int nr_banks,
+ram_addr_t ppc4xx_sdram_adjust(MachineState *machine,
+                               ram_addr_t ram_size, int nr_banks,
                                MemoryRegion ram_memories[],
                                hwaddr ram_bases[],
                                hwaddr ram_sizes[],
                                const ram_addr_t sdram_bank_sizes[])
 {
-    MemoryRegion *ram = g_malloc0(sizeof(*ram));
+    MemoryRegion *ram;
     ram_addr_t size_left = ram_size;
     ram_addr_t base = 0;
     ram_addr_t bank_size;
@@ -703,7 +704,8 @@ ram_addr_t ppc4xx_sdram_adjust(ram_addr_t ram_size, int nr_banks,
                      " controller limits", ram_size / MiB);
     }
 
-    memory_region_allocate_system_memory(ram, NULL, "ppc4xx.sdram", ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "ppc4xx.sdram",
+                                               ram_size);
 
     size_left = ram_size;
     for (i = 0; i < nr_banks && size_left; i++) {

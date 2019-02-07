@@ -270,7 +270,7 @@ static void a9_daughterboard_init(const VexpressMachineState *vms,
                                   qemu_irq *pic)
 {
     MemoryRegion *sysmem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     MemoryRegion *lowram = g_new(MemoryRegion, 1);
     ram_addr_t low_ram_size;
 
@@ -280,8 +280,8 @@ static void a9_daughterboard_init(const VexpressMachineState *vms,
         exit(1);
     }
 
-    memory_region_allocate_system_memory(ram, NULL, "vexpress.highmem",
-                                         ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(vms), "vexpress.highmem",
+                                               ram_size);
     low_ram_size = ram_size;
     if (low_ram_size > 0x4000000) {
         low_ram_size = 0x4000000;
@@ -356,7 +356,7 @@ static void a15_daughterboard_init(const VexpressMachineState *vms,
                                    qemu_irq *pic)
 {
     MemoryRegion *sysmem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     MemoryRegion *sram = g_new(MemoryRegion, 1);
 
     {
@@ -371,7 +371,7 @@ static void a15_daughterboard_init(const VexpressMachineState *vms,
         }
     }
 
-    memory_region_allocate_system_memory(ram, NULL, "vexpress.highmem",
+    ram = memory_region_allocate_system_memory(OBJECT(vms), "vexpress.highmem",
                                          ram_size);
     /* RAM is from 0x80000000 upwards; there is no low-memory alias for it. */
     memory_region_add_subregion(sysmem, 0x80000000, ram);

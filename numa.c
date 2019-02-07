@@ -40,6 +40,7 @@
 #include "qemu/option.h"
 #include "qemu/config-file.h"
 #include "qemu/cutils.h"
+#include "qom/object_interfaces.h"
 
 QemuOptsList qemu_numa_opts = {
     .name = "numa",
@@ -475,50 +476,73 @@ void numa_cpu_pre_plug(const CPUArchId *slot, DeviceState *dev, Error **errp)
     }
 }
 
-static void allocate_system_memory_nonnuma(MemoryRegion *mr, Object *owner,
-                                           const char *name,
-                                           uint64_t ram_size)
+static HostMemoryBackend *
+alloc_mem_backend(const char *type, Object *owner, const char *name,
+                  uint64_t ram_size, const char *path, Error **err)
 {
+        Object *o = object_new(type);
+        object_property_add_child(owner, name, o, &error_abort);
+        object_unref(o);
+
+        object_property_set_int(o, ram_size, "size", &error_abort);
+        if (path) {
+            object_property_set_str(o, mem_path, "mem-path", &error_abort);
+        }
+        object_property_set_bool(o, mem_prealloc, "prealloc", &error_abort);
+        user_creatable_complete(USER_CREATABLE(o), err);
+        return MEMORY_BACKEND(o);
+}
+
+static MemoryRegion *allocate_system_memory_nonnuma(Object *owner,
+                                                    const char *name,
+                                                    uint64_t ram_size)
+{
+    MemoryRegion *mr;
+    HostMemoryBackend *backend;
+
     if (mem_path) {
-#ifdef __linux__
         Error *err = NULL;
-        memory_region_init_ram_from_file(mr, owner, name, ram_size, 0, 0,
-                                         mem_path, &err);
+
+        backend = alloc_mem_backend("memory-backend-file", owner, name,
+                                    ram_size, mem_path, &err);
         if (err) {
+            object_unparent(OBJECT(backend));
             error_report_err(err);
+#ifndef __linux__
+            exit(1);
+#endif
             if (mem_prealloc) {
                 exit(1);
             }
-            error_report("falling back to regular RAM allocation.");
-
-            /* Legacy behavior: if allocation failed, fall back to
+            /* Legacy behavior: if allocation failed, fall through to
              * regular RAM allocation.
              */
-            mem_path = NULL;
-            memory_region_init_ram_nomigrate(mr, owner, name, ram_size, &error_fatal);
+            error_report("falling back to regular RAM allocation.");
         }
-#else
-        fprintf(stderr, "-mem-path not supported on this host\n");
-        exit(1);
-#endif
-    } else {
-        memory_region_init_ram_nomigrate(mr, owner, name, ram_size, &error_fatal);
     }
+
+    backend = alloc_mem_backend("memory-backend-ram", owner, name,
+                                ram_size, NULL, &error_fatal);
+
+    host_memory_backend_set_mapped(backend, true);
+    mr = host_memory_backend_get_memory(backend);
     vmstate_register_ram_global(mr);
+    return mr;
 }
 
-void memory_region_allocate_system_memory(MemoryRegion *mr, Object *owner,
-                                          const char *name,
-                                          uint64_t ram_size)
+MemoryRegion *memory_region_allocate_system_memory(Object *owner,
+                                                   const char *name,
+                                                   uint64_t ram_size)
 {
+    MemoryRegion *mr;
     uint64_t addr = 0;
     int i;
 
     if (nb_numa_nodes == 0 || !have_memdevs) {
-        allocate_system_memory_nonnuma(mr, owner, name, ram_size);
-        return;
+        return allocate_system_memory_nonnuma(owner, name, ram_size);
     }
 
+    mr = g_new(MemoryRegion, 1);
     memory_region_init(mr, owner, name, ram_size);
     for (i = 0; i < nb_numa_nodes; i++) {
         uint64_t size = numa_info[i].node_mem;
@@ -542,6 +566,7 @@ void memory_region_allocate_system_memory(MemoryRegion *mr, Object *owner,
         vmstate_register_ram_global(seg);
         addr += size;
     }
+    return mr;
 }
 
 static void numa_stat_memory_devices(NumaNodeMem node_mem[])

@@ -78,7 +78,7 @@ typedef struct {
     MachineState parent;
 
     ARMSSE iotkit;
-    MemoryRegion psram;
+    MemoryRegion *psram;
     MemoryRegion ssram[3];
     MemoryRegion ssram1_m;
     MPS2SCC scc;
@@ -457,9 +457,9 @@ static void mps2tz_common_init(MachineState *machine)
      * tradeoffs. For QEMU they're all just RAM, though. We arbitrarily
      * call the 16MB our "system memory", as it's the largest lump.
      */
-    memory_region_allocate_system_memory(&mms->psram,
-                                         NULL, "mps.ram", 0x01000000);
-    memory_region_add_subregion(system_memory, 0x80000000, &mms->psram);
+    mms->psram = memory_region_allocate_system_memory(OBJECT(mms),
+                                                      "mps.ram", 0x01000000);
+    memory_region_add_subregion(system_memory, 0x80000000, mms->psram);
 
     /* The overflow IRQs for all UARTs are ORed together.
      * Tx, Rx and "combined" IRQs are sent to the NVIC separately.

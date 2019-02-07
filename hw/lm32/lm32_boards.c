@@ -81,7 +81,7 @@ static void lm32_evr_init(MachineState *machine)
     CPULM32State *env;
     DriveInfo *dinfo;
     MemoryRegion *address_space_mem =  get_system_memory();
-    MemoryRegion *phys_ram = g_new(MemoryRegion, 1);
+    MemoryRegion *phys_ram;
     qemu_irq irq[32];
     ResetInfo *reset_info;
     int i;
@@ -108,8 +108,9 @@ static void lm32_evr_init(MachineState *machine)
 
     reset_info->flash_base = flash_base;
 
-    memory_region_allocate_system_memory(phys_ram, NULL, "lm32_evr.sdram",
-                                         ram_size);
+    phys_ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                    "lm32_evr.sdram",
+                                                    ram_size);
     memory_region_add_subregion(address_space_mem, ram_base, phys_ram);
 
     dinfo = drive_get(IF_PFLASH, 0, 0);
@@ -167,7 +168,7 @@ static void lm32_uclinux_init(MachineState *machine)
     CPULM32State *env;
     DriveInfo *dinfo;
     MemoryRegion *address_space_mem =  get_system_memory();
-    MemoryRegion *phys_ram = g_new(MemoryRegion, 1);
+    MemoryRegion *phys_ram;
     qemu_irq irq[32];
     HWSetup *hw;
     ResetInfo *reset_info;
@@ -201,8 +202,9 @@ static void lm32_uclinux_init(MachineState *machine)
 
     reset_info->flash_base = flash_base;
 
-    memory_region_allocate_system_memory(phys_ram, NULL,
-                                         "lm32_uclinux.sdram", ram_size);
+    phys_ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                   "lm32_uclinux.sdram",
+                                                   ram_size);
     memory_region_add_subregion(address_space_mem, ram_base, phys_ram);
 
     dinfo = drive_get(IF_PFLASH, 0, 0);

@@ -51,7 +51,7 @@
 
 typedef struct IMX31KZM {
     FslIMX31State soc;
-    MemoryRegion ram;
+    MemoryRegion *ram;
     MemoryRegion ram_alias;
 } IMX31KZM;
 
@@ -85,10 +85,10 @@ static void kzm_init(MachineState *machine)
         machine->ram_size = FSL_IMX31_SDRAM0_SIZE + FSL_IMX31_SDRAM1_SIZE;
     }
 
-    memory_region_allocate_system_memory(&s->ram, NULL, "kzm.ram",
-                                         machine->ram_size);
+    s->ram = memory_region_allocate_system_memory(OBJECT(machine), "kzm.ram",
+                                                  machine->ram_size);
     memory_region_add_subregion(get_system_memory(), FSL_IMX31_SDRAM0_ADDR,
-                                &s->ram);
+                                s->ram);
 
     /* initialize the alias memory if any */
     for (i = 0, ram_size = machine->ram_size, alias_offset = 0;
@@ -108,7 +108,7 @@ static void kzm_init(MachineState *machine)
 
         if (size < ram[i].size) {
             memory_region_init_alias(&s->ram_alias, NULL, "ram.alias",
-                                     &s->ram, alias_offset, ram[i].size - size);
+                                     s->ram, alias_offset, ram[i].size - size);
             memory_region_add_subregion(get_system_memory(),
                                         ram[i].addr + size, &s->ram_alias);
         }

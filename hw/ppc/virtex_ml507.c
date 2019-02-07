@@ -206,7 +206,7 @@ static void virtex_init(MachineState *machine)
     CPUPPCState *env;
     hwaddr ram_base = 0;
     DriveInfo *dinfo;
-    MemoryRegion *phys_ram = g_new(MemoryRegion, 1);
+    MemoryRegion *phys_ram;
     qemu_irq irq[32], *cpu_irq;
     int kernel_size;
     int i;
@@ -223,7 +223,8 @@ static void virtex_init(MachineState *machine)
 
     qemu_register_reset(main_cpu_reset, cpu);
 
-    memory_region_allocate_system_memory(phys_ram, NULL, "ram", ram_size);
+    phys_ram = memory_region_allocate_system_memory(OBJECT(machine), "ram",
+                                                    ram_size);
     memory_region_add_subregion(address_space_mem, ram_base, phys_ram);
 
     dinfo = drive_get(IF_PFLASH, 0, 0);

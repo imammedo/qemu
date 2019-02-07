@@ -35,9 +35,9 @@ static void machine_none_init(MachineState *mch)
 
     /* RAM at address zero */
     if (mch->ram_size) {
-        MemoryRegion *ram = g_new(MemoryRegion, 1);
-
-        memory_region_allocate_system_memory(ram, NULL, "ram", mch->ram_size);
+        MemoryRegion *ram;
+        ram = memory_region_allocate_system_memory(OBJECT(mch), "ram",
+                                                   mch->ram_size);
         memory_region_add_subregion(get_system_memory(), 0, ram);
     }
 

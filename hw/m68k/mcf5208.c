@@ -227,7 +227,7 @@ static void mcf5208evb_init(MachineState *machine)
     hwaddr entry;
     qemu_irq *pic;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     MemoryRegion *sram = g_new(MemoryRegion, 1);
 
     cpu = M68K_CPU(cpu_create(machine->cpu_type));
@@ -238,7 +238,8 @@ static void mcf5208evb_init(MachineState *machine)
     /* TODO: Configure BARs.  */
 
     /* DRAM at 0x40000000 */
-    memory_region_allocate_system_memory(ram, NULL, "mcf5208.ram", ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "mcf5208.ram",
+                                               ram_size);
     memory_region_add_subregion(address_space_mem, 0x40000000, ram);
 
     /* Internal SRAM.  */

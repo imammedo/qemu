@@ -164,7 +164,7 @@ static void zynq_init(MachineState *machine)
     const char *initrd_filename = machine->initrd_filename;
     ARMCPU *cpu;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ext_ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ext_ram;
     MemoryRegion *ocm_ram = g_new(MemoryRegion, 1);
     DeviceState *dev;
     SysBusDevice *busdev;
@@ -193,8 +193,9 @@ static void zynq_init(MachineState *machine)
     }
 
     /* DDR remapped to address zero.  */
-    memory_region_allocate_system_memory(ext_ram, NULL, "zynq.ext_ram",
-                                         ram_size);
+    ext_ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                   "zynq.ext_ram",
+                                                   ram_size);
     memory_region_add_subregion(address_space_mem, 0, ext_ram);
 
     /* 256K of on-chip memory */

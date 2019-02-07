@@ -88,7 +88,7 @@ static void ppc_heathrow_init(MachineState *machine)
     CPUPPCState *env = NULL;
     char *filename;
     int linux_boot, i;
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     MemoryRegion *bios = g_new(MemoryRegion, 1);
     uint32_t kernel_base, initrd_base, cmdline_base = 0;
     int32_t kernel_size, initrd_size;
@@ -123,8 +123,8 @@ static void ppc_heathrow_init(MachineState *machine)
         exit(1);
     }
 
-    memory_region_allocate_system_memory(ram, NULL, "ppc_heathrow.ram",
-                                         ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                               "ppc_heathrow.ram", ram_size);
     memory_region_add_subregion(sysmem, 0, ram);
 
     /* allocate and load BIOS */

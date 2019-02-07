@@ -37,9 +37,9 @@
  * to be backed via the -mem-path memory backend and can simply
  * be created via memory_region_init_ram().
  */
-void memory_region_allocate_system_memory(MemoryRegion *mr, Object *owner,
-                                          const char *name,
-                                          uint64_t ram_size);
+MemoryRegion *memory_region_allocate_system_memory(Object *owner,
+                                                   const char *name,
+                                                   uint64_t ram_size);
 
 #define TYPE_MACHINE_SUFFIX "-machine"
 

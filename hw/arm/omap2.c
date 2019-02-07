@@ -2273,9 +2273,10 @@ static const struct dma_irq_map omap2_dma_irq_map[] = {
     { 0, OMAP_INT_24XX_SDMA_IRQ3 },
 };
 
-struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
-                unsigned long sdram_size,
-                const char *cpu_type)
+struct omap_mpu_state_s *omap2420_mpu_init(MachineState *machine,
+                                           MemoryRegion *sysmem,
+                                           unsigned long sdram_size,
+                                           const char *cpu_type)
 {
     struct omap_mpu_state_s *s = g_new0(struct omap_mpu_state_s, 1);
     qemu_irq dma_irqs[4];
@@ -2296,9 +2297,10 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     omap_clk_init(s);
 
     /* Memory-mapped stuff */
-    memory_region_allocate_system_memory(&s->sdram, NULL, "omap2.dram",
-                                         s->sdram_size);
-    memory_region_add_subregion(sysmem, OMAP2_Q2_BASE, &s->sdram);
+    s->sdram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                    "omap2.dram",
+                                                    s->sdram_size);
+    memory_region_add_subregion(sysmem, OMAP2_Q2_BASE, s->sdram);
     memory_region_init_ram(&s->sram, NULL, "omap2.sram", s->sram_size,
                            &error_fatal);
     memory_region_add_subregion(sysmem, OMAP2_SRAM_BASE, &s->sram);
@@ -2335,7 +2337,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     s->port->addr_valid = omap2_validate_addr;
 
     /* Register SDRAM and SRAM ports for fast DMA transfers.  */
-    soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(&s->sdram),
+    soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(s->sdram),
                          OMAP2_Q2_BASE, s->sdram_size);
     soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(&s->sram),
                          OMAP2_SRAM_BASE, s->sram_size);

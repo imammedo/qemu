@@ -119,8 +119,8 @@ static void sx1_init(MachineState *machine, const int version)
         flash_size = flash2_size;
     }
 
-    mpu = omap310_mpu_init(address_space, sx1_binfo.ram_size,
-                           machine->cpu_type);
+    mpu = omap310_mpu_init(machine, address_space,
+                           sx1_binfo.ram_size, machine->cpu_type);
 
     /* External Flash (EMIFS) */
     memory_region_init_ram(flash, NULL, "omap_sx1.flash0-0", flash_size,

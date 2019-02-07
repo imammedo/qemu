@@ -1524,8 +1524,8 @@ static void machvirt_init(MachineState *machine)
     fdt_add_timer_nodes(vms);
     fdt_add_cpu_nodes(vms);
 
-    memory_region_allocate_system_memory(ram, NULL, "mach-virt.ram",
-                                         machine->ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(vms), "mach-virt.ram",
+                                               machine->ram_size);
     memory_region_add_subregion(sysmem, vms->memmap[VIRT_MEM].base, ram);
 
     create_flash(vms, sysmem, secure_sysmem ? secure_sysmem : sysmem);

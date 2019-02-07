@@ -413,7 +413,7 @@ static void ppc_prep_init(MachineState *machine)
     MemoryRegion *xcsr = g_new(MemoryRegion, 1);
 #endif
     int linux_boot, i, nb_nics1;
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     uint32_t kernel_base, initrd_base;
     long kernel_size, initrd_size;
     DeviceState *dev;
@@ -445,7 +445,8 @@ static void ppc_prep_init(MachineState *machine)
     }
 
     /* allocate RAM */
-    memory_region_allocate_system_memory(ram, NULL, "ppc_prep.ram", ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "ppc_prep.ram",
+                                               ram_size);
     memory_region_add_subregion(sysmem, 0, ram);
 
     if (linux_boot) {

@@ -33,7 +33,7 @@ static void collie_init(MachineState *machine)
     DriveInfo *dinfo;
     MemoryRegion *sysmem = get_system_memory();
 
-    s = sa1110_init(sysmem, collie_binfo.ram_size, machine->cpu_type);
+    s = sa1110_init(machine, sysmem, collie_binfo.ram_size, machine->cpu_type);
 
     dinfo = drive_get(IF_PFLASH, 0, 0);
     pflash_cfi01_register(SA_CS0, NULL, "collie.fl1", 0x02000000,

@@ -1191,7 +1191,7 @@ void mips_malta_init(MachineState *machine)
     char *filename;
     pflash_t *fl;
     MemoryRegion *system_memory = get_system_memory();
-    MemoryRegion *ram_high = g_new(MemoryRegion, 1);
+    MemoryRegion *ram_high;
     MemoryRegion *ram_low_preio = g_new(MemoryRegion, 1);
     MemoryRegion *ram_low_postio;
     MemoryRegion *bios, *bios_copy = g_new(MemoryRegion, 1);
@@ -1232,8 +1232,9 @@ void mips_malta_init(MachineState *machine)
     }
 
     /* register RAM at high address where it is undisturbed by IO */
-    memory_region_allocate_system_memory(ram_high, NULL, "mips_malta.ram",
-                                         ram_size);
+    ram_high = memory_region_allocate_system_memory(OBJECT(machine),
+                                                    "mips_malta.ram",
+                                                    ram_size);
     memory_region_add_subregion(system_memory, 0x80000000, ram_high);
 
     /* alias for pre IO hole access */

@@ -3852,9 +3852,10 @@ static int omap_validate_tipb_mpui_addr(struct omap_mpu_state_s *s,
     return range_covers_byte(0xe1010000, 0xe1020004 - 0xe1010000, addr);
 }
 
-struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
-                unsigned long sdram_size,
-                const char *cpu_type)
+struct omap_mpu_state_s *omap310_mpu_init(MachineState *machine,
+                                          MemoryRegion *system_memory,
+                                          unsigned long sdram_size,
+                                          const char *cpu_type)
 {
     int i;
     struct omap_mpu_state_s *s = g_new0(struct omap_mpu_state_s, 1);
@@ -3874,9 +3875,10 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     omap_clk_init(s);
 
     /* Memory-mapped stuff */
-    memory_region_allocate_system_memory(&s->emiff_ram, NULL, "omap1.dram",
-                                         s->sdram_size);
-    memory_region_add_subregion(system_memory, OMAP_EMIFF_BASE, &s->emiff_ram);
+    s->emiff_ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                        "omap1.dram",
+                                                        s->sdram_size);
+    memory_region_add_subregion(system_memory, OMAP_EMIFF_BASE, s->emiff_ram);
     memory_region_init_ram(&s->imif_ram, NULL, "omap1.sram", s->sram_size,
                            &error_fatal);
     memory_region_add_subregion(system_memory, OMAP_IMIF_BASE, &s->imif_ram);
@@ -3919,7 +3921,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     s->port[tipb_mpui].addr_valid = omap_validate_tipb_mpui_addr;
 
     /* Register SDRAM and SRAM DMA ports for fast transfers.  */
-    soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(&s->emiff_ram),
+    soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(s->emiff_ram),
                          OMAP_EMIFF_BASE, s->sdram_size);
     soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(&s->imif_ram),
                          OMAP_IMIF_BASE, s->sram_size);

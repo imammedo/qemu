@@ -92,9 +92,8 @@ static void machine_hppa_init(MachineState *machine)
     }
 
     /* Main memory region. */
-    ram_region = g_new(MemoryRegion, 1);
-    memory_region_allocate_system_memory(ram_region, OBJECT(machine),
-                                         "ram", ram_size);
+    ram_region = memory_region_allocate_system_memory(OBJECT(machine),
+                                                      "ram", ram_size);
     memory_region_add_subregion(addr_space, 0, ram_region);
 
     /* Init Dino (PCI host bus chip).  */

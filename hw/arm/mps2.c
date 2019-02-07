@@ -54,7 +54,7 @@ typedef struct {
     MachineState parent;
 
     ARMv7MState armv7m;
-    MemoryRegion psram;
+    MemoryRegion *psram;
     MemoryRegion ssram1;
     MemoryRegion ssram1_m;
     MemoryRegion ssram23;
@@ -145,9 +145,9 @@ static void mps2_common_init(MachineState *machine)
      * This is of no use for QEMU so we don't implement it (as if
      * zbt_boot_ctrl is always zero).
      */
-    memory_region_allocate_system_memory(&mms->psram,
-                                         NULL, "mps.ram", 0x1000000);
-    memory_region_add_subregion(system_memory, 0x21000000, &mms->psram);
+    mms->psram = memory_region_allocate_system_memory(OBJECT(mms),
+                                                      "mps.ram", 0x1000000);
+    memory_region_add_subregion(system_memory, 0x21000000, mms->psram);
 
     switch (mmc->fpga_type) {
     case FPGA_AN385:

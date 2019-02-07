@@ -2577,7 +2577,7 @@ static void spapr_machine_init(MachineState *machine)
     PCIHostState *phb;
     int i;
     MemoryRegion *sysmem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     hwaddr node0_size = spapr_node0_size(machine);
     long load_limit, fw_size;
     char *filename;
@@ -2716,8 +2716,8 @@ static void spapr_machine_init(MachineState *machine)
     }
 
     /* allocate RAM */
-    memory_region_allocate_system_memory(ram, NULL, "ppc_spapr.ram",
-                                         machine->ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "ppc_spapr.ram",
+                                               machine->ram_size);
     memory_region_add_subregion(sysmem, 0, ram);
 
     /* always allocate the device memory information */

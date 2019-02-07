@@ -585,8 +585,8 @@ static void integratorcp_init(MachineState *machine)
     Object *cpuobj;
     ARMCPU *cpu;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
     MemoryRegion *ram_alias = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     qemu_irq pic[32];
     DeviceState *dev, *sic, *icp;
     int i;
@@ -605,8 +605,9 @@ static void integratorcp_init(MachineState *machine)
 
     cpu = ARM_CPU(cpuobj);
 
-    memory_region_allocate_system_memory(ram, NULL, "integrator.ram",
-                                         ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                               "integrator.ram",
+                                               ram_size);
     /* ??? On a real system the first 1Mb is mapped as SSRAM or boot flash.  */
     /* ??? RAM should repeat to fill physical memory space.  */
     /* SDRAM at address zero*/

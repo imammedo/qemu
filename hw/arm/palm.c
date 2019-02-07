@@ -201,7 +201,8 @@ static void palmte_init(MachineState *machine)
     MemoryRegion *flash = g_new(MemoryRegion, 1);
     MemoryRegion *cs = g_new(MemoryRegion, 4);
 
-    mpu = omap310_mpu_init(address_space_mem, sdram_size, machine->cpu_type);
+    mpu = omap310_mpu_init(machine, address_space_mem, sdram_size,
+                           machine->cpu_type);
 
     /* External Flash (EMIFS) */
     memory_region_init_ram(flash, NULL, "palmte.flash", flash_size,

@@ -31,7 +31,7 @@ static struct arm_boot_info aspeed_board_binfo = {
 
 struct AspeedBoardState {
     AspeedSoCState soc;
-    MemoryRegion ram;
+    MemoryRegion *ram;
     MemoryRegion max_ram;
 };
 
@@ -188,10 +188,11 @@ static void aspeed_board_init(MachineState *machine,
     ram_size = object_property_get_uint(OBJECT(&bmc->soc), "ram-size",
                                         &error_abort);
 
-    memory_region_allocate_system_memory(&bmc->ram, NULL, "ram", ram_size);
+    bmc->ram = memory_region_allocate_system_memory(OBJECT(machine), "ram",
+                                                    ram_size);
     memory_region_add_subregion(get_system_memory(), sc->info->sdram_base,
-                                &bmc->ram);
-    object_property_add_const_link(OBJECT(&bmc->soc), "ram", OBJECT(&bmc->ram),
+                                bmc->ram);
+    object_property_add_const_link(OBJECT(&bmc->soc), "ram", OBJECT(bmc->ram),
                                    &error_abort);
 
     max_ram_size = object_property_get_uint(OBJECT(&bmc->soc), "max-ram-size",

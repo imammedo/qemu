@@ -113,7 +113,7 @@ static void leon3_generic_hw_init(MachineState *machine)
     SPARCCPU *cpu;
     CPUSPARCState   *env;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     MemoryRegion *prom = g_new(MemoryRegion, 1);
     int         ret;
     char       *filename;
@@ -147,7 +147,8 @@ static void leon3_generic_hw_init(MachineState *machine)
         exit(1);
     }
 
-    memory_region_allocate_system_memory(ram, NULL, "leon3.ram", ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "leon3.ram",
+                                               ram_size);
     memory_region_add_subregion(address_space_mem, 0x40000000, ram);
 
     /* Allocate BIOS */

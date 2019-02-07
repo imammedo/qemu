@@ -23,7 +23,7 @@
 
 typedef struct {
     FslIMX7State soc;
-    MemoryRegion ram;
+    MemoryRegion *ram;
 } MCIMX7Sabre;
 
 static void mcimx7d_sabre_init(MachineState *machine)
@@ -54,10 +54,11 @@ static void mcimx7d_sabre_init(MachineState *machine)
     object_property_add_child(OBJECT(machine), "soc", soc, &error_fatal);
     object_property_set_bool(soc, true, "realized", &error_fatal);
 
-    memory_region_allocate_system_memory(&s->ram, NULL, "mcimx7d-sabre.ram",
-                                         machine->ram_size);
+    s->ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                  "mcimx7d-sabre.ram",
+                                                  machine->ram_size);
     memory_region_add_subregion(get_system_memory(),
-                                FSL_IMX7_MMDC_ADDR, &s->ram);
+                                FSL_IMX7_MMDC_ADDR, s->ram);
 
     for (i = 0; i < FSL_IMX7_NUM_USDHCS; i++) {
         BusState *bus;

@@ -31,7 +31,7 @@ static struct arm_boot_info cubieboard_binfo = {
 
 typedef struct CubieBoardState {
     AwA10State *a10;
-    MemoryRegion sdram;
+    MemoryRegion *sdram;
 } CubieBoardState;
 
 static void cubieboard_init(MachineState *machine)
@@ -66,10 +66,11 @@ static void cubieboard_init(MachineState *machine)
         exit(1);
     }
 
-    memory_region_allocate_system_memory(&s->sdram, NULL, "cubieboard.ram",
-                                         machine->ram_size);
+    s->sdram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                   "cubieboard.ram",
+                                                   machine->ram_size);
     memory_region_add_subregion(get_system_memory(), AW_A10_SDRAM_BASE,
-                                &s->sdram);
+                                s->sdram);
 
     /* TODO create and connect IDE devices for ide_drive_get() */
 

@@ -21,7 +21,7 @@
 
 typedef struct {
     FslIMX6ULState soc;
-    MemoryRegion ram;
+    MemoryRegion *ram;
 } MCIMX6ULEVK;
 
 static void mcimx6ul_evk_init(MachineState *machine)
@@ -51,10 +51,11 @@ static void mcimx6ul_evk_init(MachineState *machine)
 
     object_property_set_bool(OBJECT(&s->soc), true, "realized", &error_fatal);
 
-    memory_region_allocate_system_memory(&s->ram, NULL, "mcimx6ul-evk.ram",
-                                         machine->ram_size);
+    s->ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                 "mcimx6ul-evk.ram",
+                                                 machine->ram_size);
     memory_region_add_subregion(get_system_memory(),
-                                FSL_IMX6UL_MMDC_ADDR, &s->ram);
+                                FSL_IMX6UL_MMDC_ADDR, s->ram);
 
     for (i = 0; i < FSL_IMX6UL_NUM_USDHCS; i++) {
         BusState *bus;

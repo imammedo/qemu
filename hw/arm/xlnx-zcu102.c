@@ -29,7 +29,7 @@ typedef struct XlnxZCU102 {
     MachineState parent_obj;
 
     XlnxZynqMPState soc;
-    MemoryRegion ddr_ram;
+    MemoryRegion *ddr_ram;
 
     bool secure;
     bool virt;
@@ -88,14 +88,14 @@ static void xlnx_zcu102_init(MachineState *machine)
                  ram_size);
     }
 
-    memory_region_allocate_system_memory(&s->ddr_ram, NULL, "ddr-ram",
-                                         ram_size);
+    s->ddr_ram = memory_region_allocate_system_memory(OBJECT(s), "ddr-ram",
+                                                      ram_size);
 
     object_initialize(&s->soc, sizeof(s->soc), TYPE_XLNX_ZYNQMP);
     object_property_add_child(OBJECT(machine), "soc", OBJECT(&s->soc),
                               &error_abort);
 
-    object_property_set_link(OBJECT(&s->soc), OBJECT(&s->ddr_ram),
+    object_property_set_link(OBJECT(&s->soc), OBJECT(s->ddr_ram),
                          "ddr-ram", &error_abort);
     object_property_set_bool(OBJECT(&s->soc), s->secure, "secure",
                              &error_fatal);

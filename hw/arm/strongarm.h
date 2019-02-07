@@ -55,7 +55,7 @@ enum {
 
 typedef struct {
     ARMCPU *cpu;
-    MemoryRegion sdram;
+    MemoryRegion *sdram;
     DeviceState *pic;
     DeviceState *gpio;
     DeviceState *ppc;
@@ -63,7 +63,7 @@ typedef struct {
     SSIBus *ssp_bus;
 } StrongARMState;
 
-StrongARMState *sa1110_init(MemoryRegion *sysmem,
+StrongARMState *sa1110_init(MachineState *machine, MemoryRegion *sysmem,
                             unsigned int sdram_size, const char *rev);
 
 #endif

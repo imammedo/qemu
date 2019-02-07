@@ -183,7 +183,7 @@ static void versatile_init(MachineState *machine, int board_id)
     Object *cpuobj;
     ARMCPU *cpu;
     MemoryRegion *sysmem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     qemu_irq pic[32];
     qemu_irq sic[32];
     DeviceState *dev, *sysctl;
@@ -219,8 +219,8 @@ static void versatile_init(MachineState *machine, int board_id)
 
     cpu = ARM_CPU(cpuobj);
 
-    memory_region_allocate_system_memory(ram, NULL, "versatile.ram",
-                                         machine->ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "versatile.ram",
+                                               machine->ram_size);
     /* ??? RAM should repeat to fill physical memory space.  */
     /* SDRAM at address zero.  */
     memory_region_add_subregion(sysmem, 0, ram);

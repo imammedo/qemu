@@ -752,7 +752,7 @@ static const TypeInfo prom_info = {
 typedef struct RamDevice {
     SysBusDevice parent_obj;
 
-    MemoryRegion ram;
+    MemoryRegion *ram;
     uint64_t size;
 } RamDevice;
 
@@ -762,9 +762,9 @@ static void ram_realize(DeviceState *dev, Error **errp)
     RamDevice *d = SUN4M_RAM(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
 
-    memory_region_allocate_system_memory(&d->ram, OBJECT(d), "sun4m.ram",
-                                         d->size);
-    sysbus_init_mmio(sbd, &d->ram);
+    d->ram = memory_region_allocate_system_memory(OBJECT(d), "sun4m.ram",
+                                                  d->size);
+    sysbus_init_mmio(sbd, d->ram);
 }
 
 static void ram_init(hwaddr addr, ram_addr_t RAM_size,

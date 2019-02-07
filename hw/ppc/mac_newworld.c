@@ -116,7 +116,7 @@ static void ppc_core99_init(MachineState *machine)
     char *filename;
     IrqLines *openpic_irqs;
     int linux_boot, i, j, k;
-    MemoryRegion *ram = g_new(MemoryRegion, 1), *bios = g_new(MemoryRegion, 1);
+    MemoryRegion *ram, *bios = g_new(MemoryRegion, 1);
     hwaddr kernel_base, initrd_base, cmdline_base = 0;
     long kernel_size, initrd_size;
     UNINHostState *uninorth_pci;
@@ -149,7 +149,8 @@ static void ppc_core99_init(MachineState *machine)
     }
 
     /* allocate RAM */
-    memory_region_allocate_system_memory(ram, NULL, "ppc_core99.ram", ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine),
+        "ppc_core99.ram", ram_size);
     memory_region_add_subregion(get_system_memory(), 0, ram);
 
     /* allocate and load BIOS */

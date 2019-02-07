@@ -34,7 +34,7 @@ static const int raspi_boardid[] = {[1] = 0xc42, [2] = 0xc43, [3] = 0xc44};
 
 typedef struct RasPiState {
     BCM283XState soc;
-    MemoryRegion ram;
+    MemoryRegion *ram;
 } RasPiState;
 
 static void write_smpboot(ARMCPU *cpu, const struct arm_boot_info *info)
@@ -181,13 +181,13 @@ static void raspi_init(MachineState *machine, int version)
                               &error_abort);
 
     /* Allocate and map RAM */
-    memory_region_allocate_system_memory(&s->ram, OBJECT(machine), "ram",
-                                         machine->ram_size);
+    s->ram = memory_region_allocate_system_memory(OBJECT(machine), "ram",
+                                                  machine->ram_size);
     /* FIXME: Remove when we have custom CPU address space support */
-    memory_region_add_subregion_overlap(get_system_memory(), 0, &s->ram, 0);
+    memory_region_add_subregion_overlap(get_system_memory(), 0, s->ram, 0);
 
     /* Setup the SOC */
-    object_property_add_const_link(OBJECT(&s->soc), "ram", OBJECT(&s->ram),
+    object_property_add_const_link(OBJECT(&s->soc), "ram", OBJECT(s->ram),
                                    &error_abort);
     object_property_set_int(OBJECT(&s->soc), smp_cpus, "enabled-cpus",
                             &error_abort);

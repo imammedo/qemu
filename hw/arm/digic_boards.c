@@ -42,7 +42,7 @@
 
 typedef struct DigicBoardState {
     DigicState *digic;
-    MemoryRegion ram;
+    MemoryRegion *ram;
 } DigicBoardState;
 
 typedef struct DigicBoard {
@@ -55,8 +55,9 @@ typedef struct DigicBoard {
 
 static void digic4_board_setup_ram(DigicBoardState *s, hwaddr ram_size)
 {
-    memory_region_allocate_system_memory(&s->ram, NULL, "ram", ram_size);
-    memory_region_add_subregion(get_system_memory(), 0, &s->ram);
+    s->ram = memory_region_allocate_system_memory(OBJECT(s->digic), "ram",
+                                                  ram_size);
+    memory_region_add_subregion(get_system_memory(), 0, s->ram);
 }
 
 static void digic4_board_init(DigicBoard *board)

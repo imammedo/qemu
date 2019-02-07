@@ -263,7 +263,7 @@ void axisdev88_init(MachineState *machine)
     struct etraxfs_dma_client *dma_eth;
     int i;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *phys_ram = g_new(MemoryRegion, 1);
+    MemoryRegion *phys_ram;
     MemoryRegion *phys_intmem = g_new(MemoryRegion, 1);
 
     /* init CPUs */
@@ -271,8 +271,9 @@ void axisdev88_init(MachineState *machine)
     env = &cpu->env;
 
     /* allocate RAM */
-    memory_region_allocate_system_memory(phys_ram, NULL, "axisdev88.ram",
-                                         ram_size);
+    phys_ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                                    "axisdev88.ram",
+                                                    ram_size);
     memory_region_add_subregion(address_space_mem, 0x40000000, phys_ram);
 
     /* The ETRAX-FS has 128Kb on chip ram, the docs refer to it as the 

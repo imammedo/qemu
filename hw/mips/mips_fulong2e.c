@@ -288,7 +288,7 @@ static void mips_fulong2e_init(MachineState *machine)
     const char *initrd_filename = machine->initrd_filename;
     char *filename;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *ram;
     MemoryRegion *bios = g_new(MemoryRegion, 1);
     long bios_size;
     int64_t kernel_entry;
@@ -311,7 +311,8 @@ static void mips_fulong2e_init(MachineState *machine)
     bios_size = 1 * MiB;
 
     /* allocate RAM */
-    memory_region_allocate_system_memory(ram, NULL, "fulong2e.ram", ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine), "fulong2e.ram",
+                                               ram_size);
     memory_region_init_ram(bios, NULL, "fulong2e.bios", bios_size,
                            &error_fatal);
     memory_region_set_readonly(bios, true);

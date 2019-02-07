@@ -34,7 +34,7 @@ typedef struct RS6000MCState {
     /* see US patent 5,684,979 for details (expired 2001-11-04) */
     uint32_t ram_size;
     bool autoconfigure;
-    MemoryRegion simm[6];
+    MemoryRegion *simm[6];
     unsigned int simm_size[6];
     uint32_t end_address[8];
     uint8_t port0820_index;
@@ -108,8 +108,8 @@ static void rs6000mc_port0820_write(void *opaque, uint32_t addr, uint32_t val)
             }
 
             size = end_address - start_address;
-            memory_region_set_enabled(&s->simm[socket - 1], size != 0);
-            memory_region_set_address(&s->simm[socket - 1],
+            memory_region_set_enabled(s->simm[socket - 1], size != 0);
+            memory_region_set_address(s->simm[socket - 1],
                                       start_address * 8 * MiB);
         }
     }
@@ -163,11 +163,10 @@ static void rs6000mc_realize(DeviceState *dev, Error **errp)
         if (s->simm_size[socket]) {
             char name[] = "simm.?";
             name[5] = socket + '0';
-            memory_region_allocate_system_memory(&s->simm[socket], OBJECT(dev),
-                                                 name,
-                                                 s->simm_size[socket] * MiB);
+            s->simm[socket] = memory_region_allocate_system_memory(OBJECT(dev),
+                name, s->simm_size[socket] * MiB);
             memory_region_add_subregion_overlap(get_system_memory(), 0,
-                                                &s->simm[socket], socket);
+                                                s->simm[socket], socket);
         }
     }
     if (ram_size) {
@@ -182,9 +181,9 @@ static void rs6000mc_realize(DeviceState *dev, Error **errp)
         uint32_t start_address = 0;
         for (socket = 0; socket < 6; socket++) {
             if (s->simm_size[socket]) {
-                memory_region_set_enabled(&s->simm[socket], true);
-                memory_region_set_address(&s->simm[socket], start_address);
-                start_address += memory_region_size(&s->simm[socket]);
+                memory_region_set_enabled(s->simm[socket], true);
+                memory_region_set_address(s->simm[socket], start_address);
+                start_address += memory_region_size(s->simm[socket]);
             }
         }
     }

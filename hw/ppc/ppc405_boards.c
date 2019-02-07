@@ -449,7 +449,7 @@ static void taihu_405ep_init(MachineState *machine)
     MemoryRegion *sysmem = get_system_memory();
     MemoryRegion *bios;
     MemoryRegion *ram_memories = g_new(MemoryRegion, 2);
-    MemoryRegion *ram = g_malloc0(sizeof(*ram));
+    MemoryRegion *ram;
     hwaddr ram_bases[2], ram_sizes[2];
     long bios_size;
     target_ulong kernel_base, initrd_base;
@@ -460,8 +460,8 @@ static void taihu_405ep_init(MachineState *machine)
 
     /* RAM is soldered to the board so the size cannot be changed */
     ram_size = 0x08000000;
-    memory_region_allocate_system_memory(ram, NULL, "taihu_405ep.ram",
-                                         ram_size);
+    ram = memory_region_allocate_system_memory(OBJECT(machine),
+                                               "taihu_405ep.ram", ram_size);
 
     ram_bases[0] = 0;
     ram_sizes[0] = 0x04000000;
