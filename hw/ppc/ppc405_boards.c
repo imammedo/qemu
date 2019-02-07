@@ -163,8 +163,8 @@ static void ref405ep_init(MachineState *machine)
     MemoryRegion *sysmem = get_system_memory();
 
     /* XXX: fix this */
-    memory_region_allocate_system_memory(&ram_memories[0], NULL, "ef405ep.ram",
-                                         0x08000000);
+    memory_region_init_ram(&ram_memories[0], NULL, "ef405ep.ram", 0x08000000,
+                           &error_fatal);
     ram_bases[0] = 0;
     ram_sizes[0] = 0x08000000;
     memory_region_init(&ram_memories[1], NULL, "ef405ep.ram1", 0);
