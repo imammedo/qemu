@@ -110,7 +110,6 @@ Guest CPU cores (TCG):
 ----------------------
 Overall
 L: qemu-devel@nongnu.org
-M: Peter Crosthwaite <crosthwaite.peter@gmail.com>
 M: Richard Henderson <rth@twiddle.net>
 R: Paolo Bonzini <pbonzini@redhat.com>
 S: Maintained
@@ -259,7 +258,6 @@ F: include/hw/ppc/
 F: disas/ppc.c
 
 RISC-V
-M: Michael Clark <mjc@sifive.com>
 M: Palmer Dabbelt <palmer@sifive.com>
 M: Alistair Francis <Alistair.Francis@wdc.com>
 M: Sagar Karandikar <sagark@eecs.berkeley.edu>
@@ -377,7 +375,7 @@ S390
 M: Halil Pasic <pasic@linux.ibm.com>
 M: Cornelia Huck <cohuck@redhat.com>
 M: Christian Borntraeger <borntraeger@de.ibm.com>
-S: Maintained
+S: Supported
 F: target/s390x/kvm.c
 F: target/s390x/kvm_s390x.h
 F: target/s390x/kvm-stub.c
@@ -1346,7 +1344,6 @@ F: tests/virtio-scsi-test.c
 T: git https://github.com/bonzini/qemu.git scsi-next
 
 SSI
-M: Peter Crosthwaite <crosthwaite.peter@gmail.com>
 M: Alistair Francis <alistair@alistair23.me>
 S: Maintained
 F: hw/ssi/*
@@ -1357,7 +1354,6 @@ F: tests/m25p80-test.c
 
 Xilinx SPI
 M: Alistair Francis <alistair@alistair23.me>
-M: Peter Crosthwaite <crosthwaite.peter@gmail.com>
 S: Maintained
 F: hw/ssi/xilinx_*
 
@@ -1767,7 +1763,6 @@ F: qom/cpu.c
 F: include/qom/cpu.h
 
 Device Tree
-M: Peter Crosthwaite <crosthwaite.peter@gmail.com>
 M: Alexander Graf <agraf@suse.de>
 S: Maintained
 F: device_tree.c
