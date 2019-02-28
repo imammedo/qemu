@@ -491,6 +491,7 @@ F: hw/sd/pl181.c
 F: hw/ssi/pl022.c
 F: include/hw/ssi/pl022.h
 F: hw/timer/pl031.c
+F: include/hw/timer/pl031.h
 F: include/hw/arm/primecell.h
 F: hw/timer/cmsdk-apb-timer.c
 F: include/hw/timer/cmsdk-apb-timer.h
@@ -632,6 +633,12 @@ F: hw/misc/iotkit-sysinfo.c
 F: include/hw/misc/iotkit-sysinfo.h
 F: hw/misc/armsse-cpuid.c
 F: include/hw/misc/armsse-cpuid.h
+
+Musca
+M: Peter Maydell <peter.maydell@linaro.org>
+L: qemu-arm@nongnu.org
+S: Maintained
+F: hw/arm/musca.c
 
 Musicpal
 M: Jan Kiszka <jan.kiszka@web.de>
@@ -1691,7 +1698,7 @@ F: include/scsi/*
 F: scsi/*
 
 Block Jobs
-M: Jeff Cody <jcody@redhat.com>
+M: John Snow <jsnow@redhat.com>
 L: qemu-block@nongnu.org
 S: Supported
 F: blockjob.c
@@ -1704,7 +1711,7 @@ F: block/commit.c
 F: block/stream.c
 F: block/mirror.c
 F: qapi/job.json
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
+T: git https://github.com/jnsnow/qemu.git jobs
 
 Block QAPI, monitor, command line
 M: Markus Armbruster <armbru@redhat.com>
@@ -2072,6 +2079,14 @@ F: io/
 F: include/io/
 F: tests/test-io-*
 
+User authorization
+M: Daniel P. Berrange <berrange@redhat.com>
+S: Maintained
+F: authz/
+F: qapi/authz.json
+F: include/authz/
+F: tests/test-authz-*
+
 Sockets
 M: Daniel P. Berrange <berrange@redhat.com>
 M: Gerd Hoffmann <kraxel@redhat.com>
@@ -2079,6 +2094,13 @@ S: Maintained
 F: include/qemu/sockets.h
 F: util/qemu-sockets.c
 F: qapi/sockets.json
+
+File monitor
+M: Daniel P. Berrange <berrange@redhat.com>
+S: Odd fixes
+F: util/filemonitor*.c
+F: include/qemu/filemonitor.h
+F: tests/test-util-filemonitor.c
 
 Throttling infrastructure
 M: Alberto Garcia <berto@igalia.com>
@@ -2239,26 +2261,22 @@ F: block/vmdk.c
 
 RBD
 M: Josh Durgin <jdurgin@redhat.com>
-M: Jeff Cody <jcody@redhat.com>
 L: qemu-block@nongnu.org
 S: Supported
 F: block/rbd.c
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 Sheepdog
 M: Liu Yuan <namei.unix@gmail.com>
-M: Jeff Cody <jcody@redhat.com>
 L: qemu-block@nongnu.org
-S: Supported
+L: sheepdog@lists.wpkg.org
+S: Odd Fixes
 F: block/sheepdog.c
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 VHDX
-M: Jeff Cody <jcody@redhat.com>
+M: Jeff Cody <codyprime@gmail.com>
 L: qemu-block@nongnu.org
 S: Supported
 F: block/vhdx*
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 VDI
 M: Stefan Weil <sw@weilnetz.de>
@@ -2288,34 +2306,26 @@ F: docs/interop/nbd.txt
 T: git https://repo.or.cz/qemu/ericb.git nbd
 
 NFS
-M: Jeff Cody <jcody@redhat.com>
 M: Peter Lieven <pl@kamp.de>
 L: qemu-block@nongnu.org
 S: Maintained
 F: block/nfs.c
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 SSH
 M: Richard W.M. Jones <rjones@redhat.com>
-M: Jeff Cody <jcody@redhat.com>
 L: qemu-block@nongnu.org
 S: Supported
 F: block/ssh.c
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 CURL
-M: Jeff Cody <jcody@redhat.com>
 L: qemu-block@nongnu.org
 S: Supported
 F: block/curl.c
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 GLUSTER
-M: Jeff Cody <jcody@redhat.com>
 L: qemu-block@nongnu.org
 S: Supported
 F: block/gluster.c
-T: git https://github.com/codyprime/qemu-kvm-jtc.git block
 
 Null Block Driver
 M: Fam Zheng <fam@euphon.net>
@@ -2478,6 +2488,11 @@ L: qemu-devel@nongnu.org
 S: Maintained
 F: .cirrus.yml
 W: https://cirrus-ci.com/github/qemu/qemu
+
+GitLab Continuous Integration
+M: Thomas Huth <thuth@redhat.com>
+S: Maintained
+F: .gitlab-ci.yml
 
 Guest Test Compilation Support
 M: Alex Bennée <alex.bennee@linaro.org>

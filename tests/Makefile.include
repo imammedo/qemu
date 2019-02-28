@@ -70,6 +70,7 @@ check-unit-y += tests/test-throttle$(EXESUF)
 check-unit-y += tests/test-thread-pool$(EXESUF)
 check-unit-y += tests/test-hbitmap$(EXESUF)
 check-unit-y += tests/test-bdrv-drain$(EXESUF)
+check-unit-y += tests/test-bdrv-graph-mod$(EXESUF)
 check-unit-y += tests/test-blockjob$(EXESUF)
 check-unit-y += tests/test-blockjob-txn$(EXESUF)
 check-unit-y += tests/test-block-backend$(EXESUF)
@@ -114,7 +115,12 @@ ifneq (,$(findstring qemu-ga,$(TOOLS)))
 check-unit-$(land,$(CONFIG_LINUX),$(CONFIG_VIRTIO_SERIAL)) += tests/test-qga$(EXESUF)
 endif
 check-unit-y += tests/test-timed-average$(EXESUF)
+check-unit-$(CONFIG_INOTIFY1) += tests/test-util-filemonitor$(EXESUF)
 check-unit-y += tests/test-util-sockets$(EXESUF)
+check-unit-y += tests/test-authz-simple$(EXESUF)
+check-unit-y += tests/test-authz-list$(EXESUF)
+check-unit-y += tests/test-authz-listfile$(EXESUF)
+check-unit-$(CONFIG_AUTH_PAM) += tests/test-authz-pam$(EXESUF)
 check-unit-y += tests/test-io-task$(EXESUF)
 check-unit-y += tests/test-io-channel-socket$(EXESUF)
 check-unit-y += tests/test-io-channel-file$(EXESUF)
@@ -192,6 +198,7 @@ check-qtest-i386-$(CONFIG_ISA_IPMI_KCS) += tests/ipmi-kcs-test$(EXESUF)
 # check-qtest-i386-$(CONFIG_ISA_IPMI_BT) += tests/ipmi-bt-test$(EXESUF)
 check-qtest-i386-y += tests/i440fx-test$(EXESUF)
 check-qtest-i386-y += tests/fw_cfg-test$(EXESUF)
+check-qtest-i386-y += tests/device-plug-test$(EXESUF)
 check-qtest-i386-y += tests/drive_del-test$(EXESUF)
 check-qtest-i386-$(CONFIG_WDT_IB700) += tests/wdt_ib700-test$(EXESUF)
 check-qtest-i386-y += tests/tco-test$(EXESUF)
@@ -256,6 +263,7 @@ check-qtest-ppc-$(CONFIG_M48T59) += tests/m48t59-test$(EXESUF)
 
 check-qtest-ppc64-y += $(check-qtest-ppc-y)
 check-qtest-ppc64-$(CONFIG_PSERIES) += tests/spapr-phb-test$(EXESUF)
+check-qtest-ppc64-$(CONFIG_PSERIES) += tests/device-plug-test$(EXESUF)
 check-qtest-ppc64-$(CONFIG_POWERNV) += tests/pnv-xscom-test$(EXESUF)
 check-qtest-ppc64-y += tests/migration-test$(EXESUF)
 check-qtest-ppc64-$(CONFIG_PSERIES) += tests/rtas-test$(EXESUF)
@@ -310,6 +318,7 @@ check-qtest-s390x-$(CONFIG_SLIRP) += tests/test-netfilter$(EXESUF)
 check-qtest-s390x-$(CONFIG_POSIX) += tests/test-filter-mirror$(EXESUF)
 check-qtest-s390x-$(CONFIG_POSIX) += tests/test-filter-redirector$(EXESUF)
 check-qtest-s390x-y += tests/drive_del-test$(EXESUF)
+check-qtest-s390x-y += tests/device-plug-test$(EXESUF)
 check-qtest-s390x-y += tests/virtio-ccw-test$(EXESUF)
 check-qtest-s390x-y += tests/cpu-plug-test$(EXESUF)
 check-qtest-s390x-y += tests/migration-test$(EXESUF)
@@ -532,9 +541,10 @@ test-qom-obj-y = $(qom-obj-y) $(test-util-obj-y)
 test-qapi-obj-y = tests/test-qapi-visit.o tests/test-qapi-types.o \
 	tests/test-qapi-introspect.o \
 	$(test-qom-obj-y)
-benchmark-crypto-obj-y = $(crypto-obj-y) $(test-qom-obj-y)
-test-crypto-obj-y = $(crypto-obj-y) $(test-qom-obj-y)
+benchmark-crypto-obj-y = $(authz-obj-y) $(crypto-obj-y) $(test-qom-obj-y)
+test-crypto-obj-y = $(authz-obj-y) $(crypto-obj-y) $(test-qom-obj-y)
 test-io-obj-y = $(io-obj-y) $(test-crypto-obj-y)
+test-authz-obj-y = $(test-qom-obj-y) $(authz-obj-y)
 test-block-obj-y = $(block-obj-y) $(test-io-obj-y) tests/iothread.o
 
 tests/check-qnum$(EXESUF): tests/check-qnum.o $(test-util-obj-y)
@@ -555,6 +565,7 @@ tests/test-aio$(EXESUF): tests/test-aio.o $(test-block-obj-y)
 tests/test-aio-multithread$(EXESUF): tests/test-aio-multithread.o $(test-block-obj-y)
 tests/test-throttle$(EXESUF): tests/test-throttle.o $(test-block-obj-y)
 tests/test-bdrv-drain$(EXESUF): tests/test-bdrv-drain.o $(test-block-obj-y) $(test-util-obj-y)
+tests/test-bdrv-graph-mod$(EXESUF): tests/test-bdrv-graph-mod.o $(test-block-obj-y) $(test-util-obj-y)
 tests/test-blockjob$(EXESUF): tests/test-blockjob.o $(test-block-obj-y) $(test-util-obj-y)
 tests/test-blockjob-txn$(EXESUF): tests/test-blockjob-txn.o $(test-block-obj-y) $(test-util-obj-y)
 tests/test-block-backend$(EXESUF): tests/test-block-backend.o $(test-block-obj-y) $(test-util-obj-y)
@@ -657,8 +668,14 @@ tests/test-crypto-tlssession$(EXESUF): tests/test-crypto-tlssession.o \
 	tests/crypto-tls-x509-helpers.o tests/pkix_asn1_tab.o \
 	tests/crypto-tls-psk-helpers.o \
         $(test-crypto-obj-y)
+tests/test-util-filemonitor$(EXESUF): tests/test-util-filemonitor.o \
+	$(test-util-obj-y)
 tests/test-util-sockets$(EXESUF): tests/test-util-sockets.o \
 	tests/socket-helpers.o $(test-util-obj-y)
+tests/test-authz-simple$(EXESUF): tests/test-authz-simple.o $(test-authz-obj-y)
+tests/test-authz-list$(EXESUF): tests/test-authz-list.o $(test-authz-obj-y)
+tests/test-authz-listfile$(EXESUF): tests/test-authz-listfile.o $(test-authz-obj-y)
+tests/test-authz-pam$(EXESUF): tests/test-authz-pam.o $(test-authz-obj-y)
 tests/test-io-task$(EXESUF): tests/test-io-task.o $(test-io-obj-y)
 tests/test-io-channel-socket$(EXESUF): tests/test-io-channel-socket.o \
         tests/io-channel-helpers.o tests/socket-helpers.o $(test-io-obj-y)
@@ -750,6 +767,7 @@ tests/ipoctal232-test$(EXESUF): tests/ipoctal232-test.o
 tests/qom-test$(EXESUF): tests/qom-test.o
 tests/test-hmp$(EXESUF): tests/test-hmp.o
 tests/machine-none-test$(EXESUF): tests/machine-none-test.o
+tests/device-plug-test$(EXESUF): tests/device-plug-test.o
 tests/drive_del-test$(EXESUF): tests/drive_del-test.o $(libqos-virtio-obj-y)
 tests/nvme-test$(EXESUF): tests/nvme-test.o $(libqos-pc-obj-y)
 tests/pvpanic-test$(EXESUF): tests/pvpanic-test.o
@@ -896,23 +914,20 @@ $(FP_TEST_BIN):
 	         "BUILD", "$(notdir $@)")
 
 # The full test suite can take a bit of time, default to a quick run
-ifeq ($(SPEED), quick)
-FP_TL=-l 1
-else
-FP_TL=-l 2 -r all
-endif
+# "-l 2 -r all" can take more than a day for some operations and is best
+# run manually
+FP_TL=-l 1 -r all
 
-# $1 = tests, $2 = description
+# $1 = tests, $2 = description, $3 = test flags
 test-softfloat = $(call quiet-command, \
 			cd $(BUILD_DIR)/tests/fp && \
-			./fp-test -s $(FP_TL) $1 > $2.out 2>&1 || \
+			./fp-test -s $(if $3,$3,$(FP_TL)) $1 > $2.out 2>&1 || \
 			(cat $2.out && exit 1;), \
 			"FLOAT TEST", $2)
 
 # Conversion Routines:
 # FIXME: i32_to_extF80 (broken), i64_to_extF80 (broken)
-#        ui32_to_f128 (not implemented), f128_to_ui32 (not implemented)
-#        extF80_roundToInt (broken)
+#        ui32_to_f128 (not implemented), extF80_roundToInt (broken)
 #
 check-softfloat-conv: $(FP_TEST_BIN)
 	$(call test-softfloat, \
@@ -941,9 +956,11 @@ check-softfloat-conv: $(FP_TEST_BIN)
 		f16_to_ui32 f16_to_ui32_r_minMag \
 		f32_to_ui32 f32_to_ui32_r_minMag \
 		f64_to_ui32 f64_to_ui32_r_minMag \
+		f128_to_ui32 f128_to_ui32_r_minMag \
 		f16_to_ui64 f16_to_ui64_r_minMag \
 		f32_to_ui64 f32_to_ui64_r_minMag \
-		f64_to_ui64 f64_to_ui64_r_minMag, \
+		f64_to_ui64 f64_to_ui64_r_minMag \
+		f128_to_ui64 f128_to_ui64_r_minMag, \
 		float-to-uint)
 	$(call test-softfloat, \
 		f16_roundToInt f32_roundToInt \
@@ -985,7 +1002,7 @@ check-softfloat-compare: $(SF_COMPARE_RULES)
 check-softfloat-mulAdd: $(FP_TEST_BIN)
 	$(call test-softfloat, \
 		f16_mulAdd f32_mulAdd f64_mulAdd f128_mulAdd, \
-		mulAdd)
+		mulAdd,-l 1)
 
 # FIXME: extF80_rem (broken)
 check-softfloat-rem: $(FP_TEST_BIN)
