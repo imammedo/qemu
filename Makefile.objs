@@ -4,7 +4,6 @@ stub-obj-y = stubs/ util/ crypto/
 util-obj-y = util/ qobject/ qapi/
 
 chardev-obj-y = chardev/
-slirp-obj-$(CONFIG_SLIRP) = slirp/
 
 #######################################################################
 # authz-obj-y is code used by both qemu system emulation and qemu-img
@@ -14,7 +13,7 @@ authz-obj-y = authz/
 #######################################################################
 # block-obj-y is code used by both qemu system emulation and qemu-img
 
-block-obj-y += nbd/
+block-obj-y = nbd/
 block-obj-y += block.o blockjob.o job.o
 block-obj-y += block/ scsi/
 block-obj-y += qemu-io-cmds.o
@@ -102,7 +101,6 @@ version-obj-$(CONFIG_WIN32) += $(BUILD_DIR)/version.o
 ######################################################################
 # tracing
 util-obj-y +=  trace/
-target-obj-y += trace/
 
 ######################################################################
 # guest agent
@@ -184,6 +182,7 @@ trace-events-subdirs += qapi
 trace-events-subdirs += qom
 trace-events-subdirs += scsi
 trace-events-subdirs += target/arm
+trace-events-subdirs += target/hppa
 trace-events-subdirs += target/i386
 trace-events-subdirs += target/mips
 trace-events-subdirs += target/ppc

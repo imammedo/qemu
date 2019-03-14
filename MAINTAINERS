@@ -117,6 +117,8 @@ F: cpus.c
 F: exec.c
 F: accel/tcg/
 F: accel/stubs/tcg-stub.c
+F: scripts/decodetree.py
+F: docs/devel/decodetree.rst
 F: include/exec/cpu*.h
 F: include/exec/exec-all.h
 F: include/exec/helper*.h
@@ -338,6 +340,7 @@ F: include/hw/tricore/
 
 Multiarch Linux User Tests
 M: Alex Bennée <alex.bennee@linaro.org>
+S: Maintained
 F: tests/tcg/multiarch/
 
 Guest CPU Cores (KVM):
@@ -983,6 +986,7 @@ L: qemu-ppc@nongnu.org
 S: Odd Fixes
 F: hw/ppc/e500*
 F: hw/gpio/mpc8xxx.c
+F: hw/i2c/mpc_i2c.c
 F: hw/net/fsl_etsec/
 F: hw/pci-host/ppce500.c
 F: include/hw/ppc/ppc_e500.h
@@ -1451,6 +1455,7 @@ vhost
 M: Michael S. Tsirkin <mst@redhat.com>
 S: Supported
 F: hw/*/*vhost*
+F: docs/interop/vhost-user.json
 F: docs/interop/vhost-user.txt
 F: contrib/vhost-user-*/
 
@@ -1965,7 +1970,7 @@ F: tests/check-qnull.c
 F: tests/check-qnum.c
 F: tests/check-qobject.c
 F: tests/check-qstring.c
-F: qdict-test-data.txt
+F: tests/data/qobject/qdict.txt
 T: git https://repo.or.cz/qemu/armbru.git qapi-next
 
 QEMU Guest Agent
@@ -2094,6 +2099,7 @@ F: qemu.sasl
 Coroutines
 M: Stefan Hajnoczi <stefanha@redhat.com>
 M: Kevin Wolf <kwolf@redhat.com>
+S: Maintained
 F: util/*coroutine*
 F: include/qemu/coroutine*
 F: tests/test-coroutine.c
@@ -2540,6 +2546,7 @@ F: .gitlab-ci.yml
 Guest Test Compilation Support
 M: Alex Bennée <alex.bennee@linaro.org>
 R: Philippe Mathieu-Daudé <f4bug@amsat.org>
+S: Maintained
 F: tests/tcg/Makefile
 F: tests/tcg/Makefile.include
 L: qemu-devel@nongnu.org
@@ -2567,3 +2574,9 @@ GIT submodules
 M: Daniel P. Berrange <berrange@redhat.com>
 S: Odd Fixes
 F: scripts/git-submodule.sh
+
+Sphinx documentation configuration and build machinery
+M: Peter Maydell <peter.maydell@linaro.org>
+S: Maintained
+F: docs/conf.py
+F: docs/*/conf.py

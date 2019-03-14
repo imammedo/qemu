@@ -406,7 +406,7 @@ includedir="\${prefix}/include"
 sysconfdir="\${prefix}/etc"
 local_statedir="\${prefix}/var"
 confsuffix="/qemu"
-slirp="yes"
+slirp=""
 oss_lib=""
 bsd="no"
 linux="no"
@@ -456,6 +456,8 @@ glusterfs_xlator_opt="no"
 glusterfs_discard="no"
 glusterfs_fallocate="no"
 glusterfs_zerofill="no"
+glusterfs_ftruncate_has_stat="no"
+glusterfs_iocb_has_stat="no"
 gtk=""
 gtk_gl="no"
 tls_priority="NORMAL"
@@ -466,7 +468,7 @@ gcrypt_hmac="no"
 auth_pam=""
 vte=""
 virglrenderer=""
-tpm="yes"
+tpm=""
 libssh2=""
 live_block_migration="yes"
 numa=""
@@ -487,7 +489,7 @@ libxml2=""
 docker="no"
 debug_mutex="no"
 libpmem=""
-libudev="no"
+default_devices="yes"
 
 # cross compilers defaults, can be overridden with --cross-cc-ARCH
 cross_cc_aarch64="aarch64-linux-gnu-gcc"
@@ -996,6 +998,10 @@ for opt do
   ;;
   --with-trace-file=*) trace_file="$optarg"
   ;;
+  --with-default-devices) default_devices="yes"
+  ;;
+  --without-default-devices) default_devices="no"
+  ;;
   --enable-gprof) gprof="yes"
   ;;
   --enable-gcov) gcov="yes"
@@ -1105,6 +1111,8 @@ for opt do
   ;;
   --disable-slirp) slirp="no"
   ;;
+  --enable-slirp=system) slirp="system"
+  ;;
   --disable-vde) vde="no"
   ;;
   --enable-vde) vde="yes"
@@ -1213,6 +1221,10 @@ for opt do
   --disable-curses) curses="no"
   ;;
   --enable-curses) curses="yes"
+  ;;
+  --disable-iconv) iconv="no"
+  ;;
+  --enable-iconv) iconv="yes"
   ;;
   --disable-curl) curl="no"
   ;;
@@ -1703,6 +1715,7 @@ disabled with --disable-FEATURE, default is enabled if available:
   gtk             gtk UI
   vte             vte support for the gtk UI
   curses          curses UI
+  iconv           font glyph conversion support
   vnc             VNC UI support
   vnc-sasl        SASL encryption for VNC server
   vnc-jpeg        JPEG lossy compression for VNC server
@@ -1828,7 +1841,7 @@ fi
 # Consult white-list to determine whether to enable werror
 # by default.  Only enable by default for git builds
 if test -z "$werror" ; then
-    if test -d "$source_path/.git" && \
+    if test -e "$source_path/.git" && \
         { test "$linux" = "yes" || test "$mingw32" = "yes"; }; then
         werror="yes"
     else
@@ -3425,7 +3438,51 @@ EOF
 fi
 
 ##########################################
+# iconv probe
+if test "$iconv" != "no" ; then
+  cat > $TMPC << EOF
+#include <iconv.h>
+int main(void) {
+  iconv_t conv = iconv_open("WCHAR_T", "UCS-2");
+  return conv != (iconv_t) -1;
+}
+EOF
+  iconv_prefix_list="/usr/local:/usr"
+  iconv_lib_list=":-liconv"
+  IFS=:
+  for iconv_prefix in $iconv_prefix_list; do
+    IFS=:
+    iconv_cflags="-I$iconv_prefix/include"
+    iconv_ldflags="-L$iconv_prefix/lib"
+    for iconv_link in $iconv_lib_list; do
+      unset IFS
+      iconv_lib="$iconv_ldflags $iconv_link"
+      echo "looking at iconv in '$iconv_cflags' '$iconv_lib'" >> config.log
+      if compile_prog "$iconv_cflags" "$iconv_lib" ; then
+        iconv_found=yes
+        break
+      fi
+    done
+    if test "$iconv_found" = yes ; then
+      break
+    fi
+  done
+  if test "$iconv_found" = "yes" ; then
+    iconv=yes
+  else
+    if test "$iconv" = "yes" ; then
+      feature_not_found "iconv" "Install iconv devel"
+    fi
+    iconv=no
+  fi
+fi
+
+##########################################
 # curses probe
+if test "$iconv" = "no" ; then
+  # curses will need iconv
+  curses=no
+fi
 if test "$curses" != "no" ; then
   if test "$mingw32" = "yes" ; then
     curses_inc_list="$($pkg_config --cflags ncurses 2>/dev/null):"
@@ -3439,14 +3496,17 @@ if test "$curses" != "no" ; then
 #include <locale.h>
 #include <curses.h>
 #include <wchar.h>
+#include <langinfo.h>
 int main(void) {
+  const char *codeset;
   wchar_t wch = L'w';
   setlocale(LC_ALL, "");
   resize_term(0, 0);
   addwstr(L"wide chars\n");
   addnwstr(&wch, 1);
   add_wch(WACS_DEGREE);
-  return 0;
+  codeset = nl_langinfo(CODESET);
+  return codeset != 0;
 }
 EOF
   IFS=:
@@ -3873,20 +3933,20 @@ EOF
 fi
 
 ##########################################
-# TPM passthrough is only on x86 Linux
+# TPM emulation is only on POSIX
 
-if test "$targetos" = Linux && { test "$cpu" = i386 || test "$cpu" = x86_64; }; then
-  tpm_passthrough=$tpm
-else
-  tpm_passthrough=no
+if test "$tpm" = ""; then
+  if test "$mingw32" = "yes"; then
+    tpm=no
+  else
+    tpm=yes
+  fi
+elif test "$tpm" = "yes"; then
+  if test "$mingw32" = "yes" ; then
+    error_exit "TPM emulation only available on POSIX systems"
+  fi
 fi
 
-# TPM emulator is for all posix systems
-if test "$mingw32" != "yes"; then
-  tpm_emulator=$tpm
-else
-  tpm_emulator=no
-fi
 ##########################################
 # attr probe
 
@@ -4082,6 +4142,38 @@ if test "$glusterfs" != "no" ; then
     if $pkg_config --atleast-version=6 glusterfs-api; then
       glusterfs_fallocate="yes"
       glusterfs_zerofill="yes"
+    fi
+    cat > $TMPC << EOF
+#include <glusterfs/api/glfs.h>
+
+int
+main(void)
+{
+	/* new glfs_ftruncate() passes two additional args */
+	return glfs_ftruncate(NULL, 0, NULL, NULL);
+}
+EOF
+    if compile_prog "$glusterfs_cflags" "$glusterfs_libs" ; then
+      glusterfs_ftruncate_has_stat="yes"
+    fi
+    cat > $TMPC << EOF
+#include <glusterfs/api/glfs.h>
+
+/* new glfs_io_cbk() passes two additional glfs_stat structs */
+static void
+glusterfs_iocb(glfs_fd_t *fd, ssize_t ret, struct glfs_stat *prestat, struct glfs_stat *poststat, void *data)
+{}
+
+int
+main(void)
+{
+	glfs_io_cbk iocb = &glusterfs_iocb;
+	iocb(NULL, 0 , NULL, NULL, NULL);
+	return 0;
+}
+EOF
+    if compile_prog "$glusterfs_cflags" "$glusterfs_libs" ; then
+      glusterfs_iocb_has_stat="yes"
     fi
   else
     if test "$glusterfs" = "yes" ; then
@@ -4589,13 +4681,24 @@ if compile_prog "" "" ; then
   syncfs=yes
 fi
 
+# Check we have a new enough version of sphinx-build
+has_sphinx_build() {
+    # This is a bit awkward but works: create a trivial document and
+    # try to run it with our configuration file (which enforces a
+    # version requirement). This will fail if either
+    # sphinx-build doesn't exist at all or if it is too old.
+    mkdir -p "$TMPDIR1/sphinx"
+    touch "$TMPDIR1/sphinx/index.rst"
+    sphinx-build -c "$source_path/docs" -b html "$TMPDIR1/sphinx" "$TMPDIR1/sphinx/out" >/dev/null 2>&1
+}
+
 # Check if tools are available to build documentation.
 if test "$docs" != "no" ; then
-  if has makeinfo && has pod2man; then
+  if has makeinfo && has pod2man && has_sphinx_build; then
     docs=yes
   else
     if test "$docs" = "yes" ; then
-      feature_not_found "docs" "Install texinfo and Perl/perl-podlators"
+      feature_not_found "docs" "Install texinfo, Perl/perl-podlators and python-sphinx"
     fi
     docs=no
   fi
@@ -5755,6 +5858,50 @@ if test "$libpmem" != "no"; then
 fi
 
 ##########################################
+# check for slirp
+
+case "$slirp" in
+  "" | yes)
+    if $pkg_config slirp; then
+      slirp=system
+    elif test -e "${source_path}/slirp/Makefile" ; then
+      slirp=internal
+    elif test -z "$slirp" ; then
+      slirp=no
+    else
+      feature_not_found "slirp" "Install slirp devel or git submodule"
+    fi
+    ;;
+
+  system)
+    if ! $pkg_config slirp; then
+      feature_not_found "slirp" "Install slirp devel"
+    fi
+    ;;
+esac
+
+case "$slirp" in
+  internal)
+    mkdir -p slirp
+    slirp_cflags="-I\$(SRC_PATH)/slirp/src -I\$(BUILD_DIR)/slirp/src"
+    slirp_libs="-L\$(BUILD_DIR)/slirp -lslirp"
+    ;;
+
+  system)
+    slirp_version=$($pkg_config --modversion slirp 2>/dev/null)
+    slirp_cflags=$($pkg_config --cflags slirp 2>/dev/null)
+    slirp_libs=$($pkg_config --libs slirp 2>/dev/null)
+    ;;
+
+  no)
+    ;;
+  *)
+    error_exit "Unknown state for slirp: $slirp"
+    ;;
+esac
+
+
+##########################################
 # End of CC checks
 # After here, no more $cc or $ld runs
 
@@ -5833,6 +5980,17 @@ if test "$mingw32" = "yes" ; then
             LDFLAGS="-Wl,$flag $LDFLAGS"
         fi
     done
+fi
+
+# Disable OpenBSD W^X if available
+if test "$tcg" = "yes" && test "$targetos" = "OpenBSD"; then
+    cat > $TMPC <<EOF
+    int main(void) { return 0; }
+EOF
+    wx_ldflags="-Wl,-z,wxneeded"
+    if compile_prog "" "$wx_ldflags"; then
+        QEMU_LDFLAGS="$QEMU_LDFLAGS $wx_ldflags"
+    fi
 fi
 
 qemu_confdir=$sysconfdir$confsuffix
@@ -6111,7 +6269,8 @@ echo "QEMU_LDFLAGS      $QEMU_LDFLAGS"
 echo "make              $make"
 echo "install           $install"
 echo "python            $python ($python_version)"
-if test "$slirp" = "yes" ; then
+echo "slirp support     $slirp $(echo_version $slirp $slirp_version)"
+if test "$slirp" != "no" ; then
     echo "smbd              $smbd"
 fi
 echo "module support    $modules"
@@ -6137,6 +6296,7 @@ echo "libgcrypt         $gcrypt"
 echo "nettle            $nettle $(echo_version $nettle $nettle_version)"
 echo "libtasn1          $tasn1"
 echo "PAM               $auth_pam"
+echo "iconv support     $iconv"
 echo "curses support    $curses"
 echo "virgl support     $virglrenderer $(echo_version $virglrenderer $virgl_version)"
 echo "curl support      $curl"
@@ -6250,6 +6410,7 @@ echo "capstone          $capstone"
 echo "docker            $docker"
 echo "libpmem support   $libpmem"
 echo "libudev           $libudev"
+echo "default devices   $default_devices"
 
 if test "$supported_cpu" = "no"; then
     echo
@@ -6311,6 +6472,11 @@ echo "GIT_UPDATE=$git_update" >> $config_host_mak
 
 echo "ARCH=$ARCH" >> $config_host_mak
 
+if test "$default_devices" = "yes" ; then
+  echo "CONFIG_MINIKCONF_MODE=--defconfig" >> $config_host_mak
+else
+  echo "CONFIG_MINIKCONF_MODE=--allnoconfig" >> $config_host_mak
+fi
 if test "$debug_tcg" = "yes" ; then
   echo "CONFIG_DEBUG_TCG=y" >> $config_host_mak
 fi
@@ -6372,9 +6538,14 @@ fi
 if test "$profiler" = "yes" ; then
   echo "CONFIG_PROFILER=y" >> $config_host_mak
 fi
-if test "$slirp" = "yes" ; then
+if test "$slirp" != "no"; then
   echo "CONFIG_SLIRP=y" >> $config_host_mak
   echo "CONFIG_SMBD_COMMAND=\"$smbd\"" >> $config_host_mak
+  echo "SLIRP_CFLAGS=$slirp_cflags" >> $config_host_mak
+  echo "SLIRP_LIBS=$slirp_libs" >> $config_host_mak
+fi
+if [ "$slirp" = "internal" ]; then
+    echo "config-host.h: subdir-slirp" >> $config_host_mak
 fi
 if test "$vde" = "yes" ; then
   echo "CONFIG_VDE=y" >> $config_host_mak
@@ -6460,6 +6631,11 @@ if test "$sdl" = "yes" ; then
 fi
 if test "$cocoa" = "yes" ; then
   echo "CONFIG_COCOA=y" >> $config_host_mak
+fi
+if test "$iconv" = "yes" ; then
+  echo "CONFIG_ICONV=y" >> $config_host_mak
+  echo "ICONV_CFLAGS=$iconv_cflags" >> $config_host_mak
+  echo "ICONV_LIBS=$iconv_lib" >> $config_host_mak
 fi
 if test "$curses" = "yes" ; then
   echo "CONFIG_CURSES=m" >> $config_host_mak
@@ -6883,6 +7059,14 @@ fi
 
 if test "$glusterfs_zerofill" = "yes" ; then
   echo "CONFIG_GLUSTERFS_ZEROFILL=y" >> $config_host_mak
+fi
+
+if test "$glusterfs_ftruncate_has_stat" = "yes" ; then
+  echo "CONFIG_GLUSTERFS_FTRUNCATE_HAS_STAT=y" >> $config_host_mak
+fi
+
+if test "$glusterfs_iocb_has_stat" = "yes" ; then
+  echo "CONFIG_GLUSTERFS_IOCB_HAS_STAT=y" >> $config_host_mak
 fi
 
 if test "$libssh2" = "yes" ; then
@@ -7427,12 +7611,18 @@ fi
 
 if supported_xen_target $target; then
     echo "CONFIG_XEN=y" >> $config_target_mak
+    echo "$target/config-devices.mak: CONFIG_XEN=y" >> $config_host_mak
     if test "$xen_pci_passthrough" = yes; then
         echo "CONFIG_XEN_PCI_PASSTHROUGH=y" >> "$config_target_mak"
     fi
+else
+    echo "$target/config-devices.mak: CONFIG_XEN=n" >> $config_host_mak
 fi
 if supported_kvm_target $target; then
     echo "CONFIG_KVM=y" >> $config_target_mak
+    echo "$target/config-devices.mak: CONFIG_KVM=y" >> $config_host_mak
+else
+    echo "$target/config-devices.mak: CONFIG_KVM=n" >> $config_host_mak
 fi
 if supported_hax_target $target; then
     echo "CONFIG_HAX=y" >> $config_target_mak
@@ -7647,11 +7837,11 @@ fi
 # tests might fail. Prefer to keep the relevant files in their own
 # directory and symlink the directory instead.
 DIRS="tests tests/tcg tests/tcg/cris tests/tcg/lm32 tests/libqos tests/qapi-schema tests/tcg/xtensa tests/qemu-iotests tests/vm"
-DIRS="$DIRS tests/fp"
+DIRS="$DIRS tests/fp tests/qgraph"
 DIRS="$DIRS docs docs/interop fsdev scsi"
 DIRS="$DIRS pc-bios/optionrom pc-bios/spapr-rtas pc-bios/s390-ccw"
 DIRS="$DIRS roms/seabios roms/vgabios"
-LINKS="Makefile tests/tcg/Makefile qdict-test-data.txt"
+LINKS="Makefile tests/tcg/Makefile"
 LINKS="$LINKS tests/tcg/cris/Makefile tests/tcg/cris/.gdbinit"
 LINKS="$LINKS tests/tcg/lm32/Makefile tests/tcg/xtensa/Makefile po/Makefile"
 LINKS="$LINKS tests/fp/Makefile"
@@ -7663,6 +7853,7 @@ LINKS="$LINKS pc-bios/qemu-icon.bmp"
 LINKS="$LINKS .gdbinit scripts" # scripts needed by relative path in .gdbinit
 LINKS="$LINKS tests/acceptance tests/data"
 LINKS="$LINKS tests/qemu-iotests/check"
+LINKS="$LINKS python"
 for bios_file in \
     $source_path/pc-bios/*.bin \
     $source_path/pc-bios/*.lid \
