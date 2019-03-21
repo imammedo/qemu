@@ -102,7 +102,7 @@ pxe-rom-%: build-pxe-roms
 
 efirom: $(patsubst %,efi-rom-%,$(pxerom_variants))
 
-efi-rom-%: build-pxe-roms build-efi-roms $(EFIROM)
+efi-rom-%: build-pxe-roms build-efi-roms edk2-basetools
 	$(EFIROM) -f "0x$(VID)" -i "0x$(DID)" -l 0x02 \
 		-b ipxe/src/bin/$(VID)$(DID).rom \
 		-ec ipxe/src/bin-i386-efi/$(VID)$(DID).efidrv \
@@ -120,7 +120,7 @@ build-efi-roms: build-pxe-roms
 		$(patsubst %,bin-i386-efi/%.efidrv,$(pxerom_targets)) \
 		$(patsubst %,bin-x86_64-efi/%.efidrv,$(pxerom_targets))
 
-$(EFIROM):
+edk2-basetools:
 	$(MAKE) -C edk2/BaseTools
 
 slof:
