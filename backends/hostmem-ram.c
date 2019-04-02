@@ -14,8 +14,6 @@
 #include "qapi/error.h"
 #include "qom/object_interfaces.h"
 
-#define TYPE_MEMORY_BACKEND_RAM "memory-backend-ram"
-
 static void
 ram_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
 {

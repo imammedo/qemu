@@ -159,6 +159,10 @@ typedef struct {
  * @kvm_type:
  *    Return the type of KVM corresponding to the kvm-type string option or
  *    computed based on other criteria such as the host kernel capabilities.
+ * @default_ram_id:
+ *    Specifies inital RAM MemoryRegion name to be used for default backend
+ *    creation if user explicitly hasn't specified backend with "ram-memdev"
+ *    property.
  */
 struct MachineClass {
     /*< private >*/
@@ -211,6 +215,7 @@ struct MachineClass {
     bool ignore_boot_device_suffixes;
     bool smbus_no_migration_support;
     bool nvdimm_supported;
+    const char *default_ram_id;
 
     HotplugHandler *(*get_hotplug_handler)(MachineState *machine,
                                            DeviceState *dev);

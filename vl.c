@@ -2986,6 +2986,24 @@ static void user_register_global_props(void)
                       global_init_func, NULL, NULL);
 }
 
+static void create_default_memdev(MachineState *ms, const char *path,
+                                  bool prealloc)
+{
+    Object *obj;
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
+
+    obj = object_new(path ? TYPE_MEMORY_BACKEND_FILE: TYPE_MEMORY_BACKEND_RAM);
+    if (path) {
+       object_property_set_str(obj, path, "mem-path", &error_fatal);
+    }
+    object_property_set_bool(obj, prealloc, "prealloc", &error_fatal);
+    object_property_set_int(obj, ms->ram_size, "size", &error_fatal);
+    object_property_add_child(object_get_objects_root(), mc->default_ram_id,
+                              obj, &error_fatal);
+    user_creatable_complete(USER_CREATABLE(obj), &error_fatal);
+    ms->ram_memdev = g_strdup(mc->default_ram_id);
+}
+
 int main(int argc, char **argv, char **envp)
 {
     int i;
@@ -4470,6 +4488,9 @@ int main(int argc, char **argv, char **envp)
     }
     parse_numa_opts(current_machine);
 
+    if (!current_machine->ram_memdev && machine_class->default_ram_id) {
+       create_default_memdev(current_machine, mem_path, mem_prealloc);
+    }
     /* do monitor/qmp handling at preconfig state if requested */
     main_loop();
 
