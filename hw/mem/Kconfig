@@ -9,3 +9,7 @@ config NVDIMM
     bool
     default y
     depends on PC
+
+config RAM_DEVICE
+    bool
+    default y
