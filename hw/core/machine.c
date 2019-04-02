@@ -523,6 +523,22 @@ static void machine_set_nvdimm_persistence(Object *obj, const char *value,
     nvdimms_state->persistence_string = g_strdup(value);
 }
 
+static char *machine_get_ram_memdev(Object *obj, Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+
+    return g_strdup(ms->ram_memdev);
+}
+
+static void machine_set_ram_memdev(Object *obj, const char *value, Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+
+    g_free(ms->ram_memdev);
+    ms->ram_memdev = g_strdup(value);
+}
+
+
 void machine_class_allow_dynamic_sysbus_dev(MachineClass *mc, const char *type)
 {
     strList *item = g_new0(strList, 1);
@@ -807,6 +823,11 @@ static void machine_class_init(ObjectClass *oc, void *data)
         &error_abort);
     object_class_property_set_description(oc, "memory-encryption",
         "Set memory encryption object to use", &error_abort);
+
+    object_class_property_add_str(oc, "ram-memdev",
+        machine_get_ram_memdev, machine_set_ram_memdev, &error_abort);
+    object_class_property_set_description(oc, "ram-memdev",
+        "Set memory backend object to use for RAM", &error_abort);
 }
 
 static void machine_class_base_init(ObjectClass *oc, void *data)
