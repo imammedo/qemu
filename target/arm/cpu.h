@@ -22,7 +22,6 @@
 
 #include "kvm-consts.h"
 #include "hw/registerfields.h"
-#include "qemu-common.h"
 #include "cpu-qom.h"
 #include "exec/cpu-defs.h"
 
@@ -3370,6 +3369,17 @@ static inline bool isar_feature_aa32_fp16_arith(const ARMISARegisters *id)
      * At which point we can properly set and check MVFR1.FPHP.
      */
     return FIELD_EX64(id->id_aa64pfr0, ID_AA64PFR0, FP) == 1;
+}
+
+static inline bool isar_feature_aa32_fp_d32(const ARMISARegisters *id)
+{
+    /* Return true if D16-D31 are implemented */
+    return FIELD_EX64(id->mvfr0, MVFR0, SIMDREG) >= 2;
+}
+
+static inline bool isar_feature_aa32_fpshvec(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->mvfr0, MVFR0, FPSHVEC) > 0;
 }
 
 /*
