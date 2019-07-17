@@ -55,7 +55,6 @@ int main(int argc, char **argv)
 #include "qemu/error-report.h"
 #include "qemu/sockets.h"
 #include "hw/hw.h"
-#include "hw/boards.h"
 #include "sysemu/accel.h"
 #include "hw/usb.h"
 #include "hw/isa/isa.h"
@@ -125,7 +124,6 @@ int main(int argc, char **argv)
 #include "qapi/qapi-visit-block-core.h"
 #include "qapi/qapi-visit-ui.h"
 #include "qapi/qapi-commands-block-core.h"
-#include "qapi/qapi-commands-misc.h"
 #include "qapi/qapi-commands-run-state.h"
 #include "qapi/qapi-commands-ui.h"
 #include "qapi/qmp/qerror.h"
@@ -165,10 +163,6 @@ static Chardev **serial_hds;
 Chardev *parallel_hds[MAX_PARALLEL_PORTS];
 int win2k_install_hack = 0;
 int singlestep = 0;
-int smp_cpus;
-unsigned int max_cpus;
-int smp_cores = 1;
-int smp_threads = 1;
 int acpi_enabled = 1;
 int no_hpet = 0;
 int fd_bootchk = 1;
@@ -1238,6 +1232,9 @@ static QemuOptsList qemu_smp_opts = {
             .name = "sockets",
             .type = QEMU_OPT_NUMBER,
         }, {
+            .name = "dies",
+            .type = QEMU_OPT_NUMBER,
+        }, {
             .name = "cores",
             .type = QEMU_OPT_NUMBER,
         }, {
@@ -1250,74 +1247,6 @@ static QemuOptsList qemu_smp_opts = {
         { /*End of list */ }
     },
 };
-
-static void smp_parse(QemuOpts *opts)
-{
-    if (opts) {
-        unsigned cpus    = qemu_opt_get_number(opts, "cpus", 0);
-        unsigned sockets = qemu_opt_get_number(opts, "sockets", 0);
-        unsigned cores   = qemu_opt_get_number(opts, "cores", 0);
-        unsigned threads = qemu_opt_get_number(opts, "threads", 0);
-
-        /* compute missing values, prefer sockets over cores over threads */
-        if (cpus == 0 || sockets == 0) {
-            cores = cores > 0 ? cores : 1;
-            threads = threads > 0 ? threads : 1;
-            if (cpus == 0) {
-                sockets = sockets > 0 ? sockets : 1;
-                cpus = cores * threads * sockets;
-            } else {
-                max_cpus = qemu_opt_get_number(opts, "maxcpus", cpus);
-                sockets = max_cpus / (cores * threads);
-            }
-        } else if (cores == 0) {
-            threads = threads > 0 ? threads : 1;
-            cores = cpus / (sockets * threads);
-            cores = cores > 0 ? cores : 1;
-        } else if (threads == 0) {
-            threads = cpus / (cores * sockets);
-            threads = threads > 0 ? threads : 1;
-        } else if (sockets * cores * threads < cpus) {
-            error_report("cpu topology: "
-                         "sockets (%u) * cores (%u) * threads (%u) < "
-                         "smp_cpus (%u)",
-                         sockets, cores, threads, cpus);
-            exit(1);
-        }
-
-        max_cpus = qemu_opt_get_number(opts, "maxcpus", cpus);
-
-        if (max_cpus < cpus) {
-            error_report("maxcpus must be equal to or greater than smp");
-            exit(1);
-        }
-
-        if (sockets * cores * threads > max_cpus) {
-            error_report("cpu topology: "
-                         "sockets (%u) * cores (%u) * threads (%u) > "
-                         "maxcpus (%u)",
-                         sockets, cores, threads, max_cpus);
-            exit(1);
-        }
-
-        if (sockets * cores * threads != max_cpus) {
-            warn_report("Invalid CPU topology deprecated: "
-                        "sockets (%u) * cores (%u) * threads (%u) "
-                        "!= maxcpus (%u)",
-                        sockets, cores, threads, max_cpus);
-        }
-
-        smp_cpus = cpus;
-        smp_cores = cores;
-        smp_threads = threads;
-    }
-
-    if (smp_cpus > 1) {
-        Error *blocker = NULL;
-        error_setg(&blocker, QERR_REPLAY_NOT_SUPPORTED, "smp");
-        replay_add_blocker(blocker);
-    }
-}
 
 static void realtime_init(void)
 {
@@ -1406,41 +1335,6 @@ static MachineClass *find_default_machine(GSList *machines)
     return NULL;
 }
 
-MachineInfoList *qmp_query_machines(Error **errp)
-{
-    GSList *el, *machines = object_class_get_list(TYPE_MACHINE, false);
-    MachineInfoList *mach_list = NULL;
-
-    for (el = machines; el; el = el->next) {
-        MachineClass *mc = el->data;
-        MachineInfoList *entry;
-        MachineInfo *info;
-
-        info = g_malloc0(sizeof(*info));
-        if (mc->is_default) {
-            info->has_is_default = true;
-            info->is_default = true;
-        }
-
-        if (mc->alias) {
-            info->has_alias = true;
-            info->alias = g_strdup(mc->alias);
-        }
-
-        info->name = g_strdup(mc->name);
-        info->cpu_max = !mc->max_cpus ? 1 : mc->max_cpus;
-        info->hotpluggable_cpus = mc->has_hotpluggable_cpus;
-
-        entry = g_malloc0(sizeof(*entry));
-        entry->value = info;
-        entry->next = mach_list;
-        mach_list = entry;
-    }
-
-    g_slist_free(machines);
-    return mach_list;
-}
-
 static int machine_help_func(QemuOpts *opts, MachineState *machine)
 {
     ObjectProperty *prop;
@@ -1471,28 +1365,57 @@ static int machine_help_func(QemuOpts *opts, MachineState *machine)
 struct vm_change_state_entry {
     VMChangeStateHandler *cb;
     void *opaque;
-    QLIST_ENTRY (vm_change_state_entry) entries;
+    QTAILQ_ENTRY(vm_change_state_entry) entries;
+    int priority;
 };
 
-static QLIST_HEAD(, vm_change_state_entry) vm_change_state_head;
+static QTAILQ_HEAD(, vm_change_state_entry) vm_change_state_head;
+
+/**
+ * qemu_add_vm_change_state_handler_prio:
+ * @cb: the callback to invoke
+ * @opaque: user data passed to the callback
+ * @priority: low priorities execute first when the vm runs and the reverse is
+ *            true when the vm stops
+ *
+ * Register a callback function that is invoked when the vm starts or stops
+ * running.
+ *
+ * Returns: an entry to be freed using qemu_del_vm_change_state_handler()
+ */
+VMChangeStateEntry *qemu_add_vm_change_state_handler_prio(
+        VMChangeStateHandler *cb, void *opaque, int priority)
+{
+    VMChangeStateEntry *e;
+    VMChangeStateEntry *other;
+
+    e = g_malloc0(sizeof(*e));
+    e->cb = cb;
+    e->opaque = opaque;
+    e->priority = priority;
+
+    /* Keep list sorted in ascending priority order */
+    QTAILQ_FOREACH(other, &vm_change_state_head, entries) {
+        if (priority < other->priority) {
+            QTAILQ_INSERT_BEFORE(other, e, entries);
+            return e;
+        }
+    }
+
+    QTAILQ_INSERT_TAIL(&vm_change_state_head, e, entries);
+    return e;
+}
 
 VMChangeStateEntry *qemu_add_vm_change_state_handler(VMChangeStateHandler *cb,
                                                      void *opaque)
 {
-    VMChangeStateEntry *e;
-
-    e = g_malloc0(sizeof (*e));
-
-    e->cb = cb;
-    e->opaque = opaque;
-    QLIST_INSERT_HEAD(&vm_change_state_head, e, entries);
-    return e;
+    return qemu_add_vm_change_state_handler_prio(cb, opaque, 0);
 }
 
 void qemu_del_vm_change_state_handler(VMChangeStateEntry *e)
 {
-    QLIST_REMOVE (e, entries);
-    g_free (e);
+    QTAILQ_REMOVE(&vm_change_state_head, e, entries);
+    g_free(e);
 }
 
 void vm_state_notify(int running, RunState state)
@@ -1501,8 +1424,14 @@ void vm_state_notify(int running, RunState state)
 
     trace_vm_state_notify(running, state, RunState_str(state));
 
-    QLIST_FOREACH_SAFE(e, &vm_change_state_head, entries, next) {
-        e->cb(e->opaque, running, state);
+    if (running) {
+        QTAILQ_FOREACH_SAFE(e, &vm_change_state_head, entries, next) {
+            e->cb(e->opaque, running, state);
+        }
+    } else {
+        QTAILQ_FOREACH_REVERSE_SAFE(e, &vm_change_state_head, entries, next) {
+            e->cb(e->opaque, running, state);
+        }
     }
 }
 
@@ -1617,7 +1546,7 @@ void qemu_system_reset(ShutdownCause reason)
     cpu_synchronize_all_states();
 
     if (mc && mc->reset) {
-        mc->reset();
+        mc->reset(current_machine);
     } else {
         qemu_devices_reset();
     }
@@ -1737,14 +1666,6 @@ void qemu_register_wakeup_support(void)
 bool qemu_wakeup_suspend_enabled(void)
 {
     return wakeup_suspend_enabled;
-}
-
-CurrentMachineParams *qmp_query_current_machine(Error **errp)
-{
-    CurrentMachineParams *params = g_malloc0(sizeof(*params));
-    params->wakeup_suspend_support = qemu_wakeup_suspend_enabled();
-
-    return params;
 }
 
 void qemu_system_killed(int signal, pid_t pid)
@@ -2969,6 +2890,8 @@ int main(int argc, char **argv, char **envp)
     char *dir, **dirs;
     BlockdevOptionsQueue bdo_queue = QSIMPLEQ_HEAD_INITIALIZER(bdo_queue);
 
+    os_set_line_buffering();
+
     error_init(argv[0]);
     module_call_init(MODULE_INIT_TRACE);
 
@@ -3025,7 +2948,7 @@ int main(int argc, char **argv, char **envp)
         exit(1);
     }
 
-    QLIST_INIT (&vm_change_state_head);
+    QTAILQ_INIT(&vm_change_state_head);
     os_setup_early_signal_handling();
 
     cpu_option = NULL;
@@ -4054,21 +3977,26 @@ int main(int argc, char **argv, char **envp)
     machine_class->default_cpus = machine_class->default_cpus ?: 1;
 
     /* default to machine_class->default_cpus */
-    smp_cpus = machine_class->default_cpus;
-    max_cpus = machine_class->default_cpus;
+    current_machine->smp.cpus = machine_class->default_cpus;
+    current_machine->smp.max_cpus = machine_class->default_cpus;
+    current_machine->smp.cores = 1;
+    current_machine->smp.threads = 1;
 
-    smp_parse(qemu_opts_find(qemu_find_opts("smp-opts"), NULL));
+    machine_class->smp_parse(current_machine,
+        qemu_opts_find(qemu_find_opts("smp-opts"), NULL));
 
     /* sanity-check smp_cpus and max_cpus against machine_class */
-    if (smp_cpus < machine_class->min_cpus) {
+    if (current_machine->smp.cpus < machine_class->min_cpus) {
         error_report("Invalid SMP CPUs %d. The min CPUs "
-                     "supported by machine '%s' is %d", smp_cpus,
+                     "supported by machine '%s' is %d",
+                     current_machine->smp.cpus,
                      machine_class->name, machine_class->min_cpus);
         exit(1);
     }
-    if (max_cpus > machine_class->max_cpus) {
+    if (current_machine->smp.max_cpus > machine_class->max_cpus) {
         error_report("Invalid SMP CPUs %d. The max CPUs "
-                     "supported by machine '%s' is %d", max_cpus,
+                     "supported by machine '%s' is %d",
+                     current_machine->smp.max_cpus,
                      machine_class->name, machine_class->max_cpus);
         exit(1);
     }
@@ -4319,8 +4247,6 @@ int main(int argc, char **argv, char **envp)
         /* fall back to the -kernel/-append */
         semihosting_arg_fallback(kernel_filename, kernel_cmdline);
     }
-
-    os_set_line_buffering();
 
     /* spice needs the timers to be initialized by this point */
     qemu_spice_init();

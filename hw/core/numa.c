@@ -27,14 +27,11 @@
 #include "exec/cpu-common.h"
 #include "exec/ramlist.h"
 #include "qemu/bitmap.h"
-#include "qom/cpu.h"
 #include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "qapi/opts-visitor.h"
-#include "qapi/qapi-commands-misc.h"
-#include "qapi/qapi-visit-misc.h"
-#include "hw/boards.h"
-#include "sysemu/hostmem.h"
+#include "qapi/qapi-visit-machine.h"
+#include "sysemu/qtest.h"
 #include "hw/mem/pc-dimm.h"
 #include "hw/mem/memory-device.h"
 #include "qemu/option.h"
@@ -48,7 +45,8 @@ QemuOptsList qemu_numa_opts = {
     .desc = { { 0 } } /* validated with OptsVisitor */
 };
 
-static int have_memdevs = -1;
+static int have_memdevs;
+static int have_mem;
 static int max_numa_nodeid; /* Highest specified NUMA node ID, plus one.
                              * For all nodes, nodeid < max_numa_nodeid
                              */
@@ -64,6 +62,7 @@ static void parse_numa_node(MachineState *ms, NumaNodeOptions *node,
     uint16_t nodenr;
     uint16List *cpus = NULL;
     MachineClass *mc = MACHINE_GET_CLASS(ms);
+    unsigned int max_cpus = ms->smp.max_cpus;
 
     if (node->has_nodeid) {
         nodenr = node->nodeid;
@@ -105,22 +104,20 @@ static void parse_numa_node(MachineState *ms, NumaNodeOptions *node,
         }
     }
 
-    if (node->has_mem && node->has_memdev) {
-        error_setg(errp, "cannot specify both mem= and memdev=");
-        return;
-    }
-
-    if (have_memdevs == -1) {
-        have_memdevs = node->has_memdev;
-    }
-    if (node->has_memdev != have_memdevs) {
-        error_setg(errp, "memdev option must be specified for either "
-                   "all or no nodes");
+    have_memdevs = have_memdevs ? : node->has_memdev;
+    have_mem = have_mem ? : node->has_mem;
+    if ((node->has_mem && have_memdevs) || (node->has_memdev && have_mem)) {
+        error_setg(errp, "numa configuration should use either mem= or memdev=,"
+                   "mixing both is not allowed");
         return;
     }
 
     if (node->has_mem) {
         numa_info[nodenr].node_mem = node->mem;
+        if (!qtest_enabled()) {
+            warn_report("Parameter -numa node,mem is deprecated,"
+                        " use -numa node,memdev instead");
+        }
     }
     if (node->has_memdev) {
         Object *o;
@@ -174,7 +171,6 @@ static void parse_numa_distance(NumaDistOptions *dist, Error **errp)
     have_numa_distance = true;
 }
 
-static
 void set_numa_options(MachineState *ms, NumaOptions *object, Error **errp)
 {
     Error *err = NULL;
@@ -407,6 +403,11 @@ void numa_complete_configuration(MachineState *ms)
         if (i == nb_numa_nodes) {
             assert(mc->numa_auto_assign_ram);
             mc->numa_auto_assign_ram(mc, numa_info, nb_numa_nodes, ram_size);
+            if (!qtest_enabled()) {
+                warn_report("Default splitting of RAM between nodes is deprecated,"
+                            " Use '-numa node,memdev' to explictly define RAM"
+                            " allocation per node");
+            }
         }
 
         numa_total = 0;
@@ -447,17 +448,6 @@ void parse_numa_opts(MachineState *ms)
     qemu_opts_foreach(qemu_find_opts("numa"), parse_numa, ms, &error_fatal);
 }
 
-void qmp_set_numa_node(NumaOptions *cmd, Error **errp)
-{
-    if (!runstate_check(RUN_STATE_PRECONFIG)) {
-        error_setg(errp, "The command is permitted only in '%s' state",
-                   RunState_str(RUN_STATE_PRECONFIG));
-         return;
-    }
-
-    set_numa_options(MACHINE(qdev_get_machine()), cmd, errp);
-}
-
 void numa_cpu_pre_plug(const CPUArchId *slot, DeviceState *dev, Error **errp)
 {
     int node_id = object_property_get_int(OBJECT(dev), "node-id", &error_abort);
@@ -489,8 +479,10 @@ static void allocate_system_memory_nonnuma(MemoryRegion *mr, Object *owner,
             if (mem_prealloc) {
                 exit(1);
             }
-            error_report("falling back to regular RAM allocation.");
-
+            warn_report("falling back to regular RAM allocation");
+            error_printf("This is deprecated. Make sure that -mem-path "
+                         " specified path has sufficient resources to allocate"
+                         " -m specified RAM amount");
             /* Legacy behavior: if allocation failed, fall back to
              * regular RAM allocation.
              */
@@ -549,6 +541,7 @@ static void numa_stat_memory_devices(NumaNodeMem node_mem[])
     MemoryDeviceInfoList *info_list = qmp_memory_device_list();
     MemoryDeviceInfoList *info;
     PCDIMMDeviceInfo     *pcdimm_info;
+    VirtioPMEMDeviceInfo *vpi;
 
     for (info = info_list; info; info = info->next) {
         MemoryDeviceInfo *value = info->value;
@@ -556,22 +549,21 @@ static void numa_stat_memory_devices(NumaNodeMem node_mem[])
         if (value) {
             switch (value->type) {
             case MEMORY_DEVICE_INFO_KIND_DIMM:
-                pcdimm_info = value->u.dimm.data;
-                break;
-
             case MEMORY_DEVICE_INFO_KIND_NVDIMM:
-                pcdimm_info = value->u.nvdimm.data;
-                break;
-
-            default:
-                pcdimm_info = NULL;
-                break;
-            }
-
-            if (pcdimm_info) {
+                pcdimm_info = value->type == MEMORY_DEVICE_INFO_KIND_DIMM ?
+                              value->u.dimm.data : value->u.nvdimm.data;
                 node_mem[pcdimm_info->node].node_mem += pcdimm_info->size;
                 node_mem[pcdimm_info->node].node_plugged_mem +=
                     pcdimm_info->size;
+                break;
+            case MEMORY_DEVICE_INFO_KIND_VIRTIO_PMEM:
+                vpi = value->u.virtio_pmem.data;
+                /* TODO: once we support numa, assign to right node */
+                node_mem[0].node_mem += vpi->size;
+                node_mem[0].node_plugged_mem += vpi->size;
+                break;
+            default:
+                g_assert_not_reached();
             }
         }
     }
@@ -590,52 +582,6 @@ void query_numa_node_mem(NumaNodeMem node_mem[])
     for (i = 0; i < nb_numa_nodes; i++) {
         node_mem[i].node_mem += numa_info[i].node_mem;
     }
-}
-
-static int query_memdev(Object *obj, void *opaque)
-{
-    MemdevList **list = opaque;
-    MemdevList *m = NULL;
-
-    if (object_dynamic_cast(obj, TYPE_MEMORY_BACKEND)) {
-        m = g_malloc0(sizeof(*m));
-
-        m->value = g_malloc0(sizeof(*m->value));
-
-        m->value->id = object_get_canonical_path_component(obj);
-        m->value->has_id = !!m->value->id;
-
-        m->value->size = object_property_get_uint(obj, "size",
-                                                  &error_abort);
-        m->value->merge = object_property_get_bool(obj, "merge",
-                                                   &error_abort);
-        m->value->dump = object_property_get_bool(obj, "dump",
-                                                  &error_abort);
-        m->value->prealloc = object_property_get_bool(obj,
-                                                      "prealloc",
-                                                      &error_abort);
-        m->value->policy = object_property_get_enum(obj,
-                                                    "policy",
-                                                    "HostMemPolicy",
-                                                    &error_abort);
-        object_property_get_uint16List(obj, "host-nodes",
-                                       &m->value->host_nodes,
-                                       &error_abort);
-
-        m->next = *list;
-        *list = m;
-    }
-
-    return 0;
-}
-
-MemdevList *qmp_query_memdev(Error **errp)
-{
-    Object *obj = object_get_objects_root();
-    MemdevList *list = NULL;
-
-    object_child_foreach(obj, query_memdev, &list);
-    return list;
 }
 
 void ram_block_notifier_add(RAMBlockNotifier *n)

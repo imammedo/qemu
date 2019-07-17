@@ -174,7 +174,7 @@ static int coroutine_fn commit_run(Job *job, Error **errp)
             break;
         }
         /* Copy if allocated above the base */
-        ret = bdrv_is_allocated_above(blk_bs(s->top), blk_bs(s->base),
+        ret = bdrv_is_allocated_above(blk_bs(s->top), blk_bs(s->base), false,
                                       offset, COMMIT_BUFFER_SIZE, &n);
         copy = (ret == 1);
         trace_commit_one_iteration(s, offset, n, ret);
@@ -298,6 +298,10 @@ void commit_start(const char *job_id, BlockDriverState *bs,
     if (!filter_node_name) {
         commit_top_bs->implicit = true;
     }
+
+    /* So that we can always drop this node */
+    commit_top_bs->never_freeze = true;
+
     commit_top_bs->total_sectors = top->total_sectors;
 
     bdrv_append(commit_top_bs, top, &local_err);
