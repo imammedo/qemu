@@ -574,6 +574,16 @@ static void mch_realize(PCIDevice *d, Error **errp)
     memory_region_set_enabled(&mch->tseg_window, false);
     memory_region_add_subregion(&mch->smram, mch->below_4g_mem_size,
                                 &mch->tseg_window);
+
+    memory_region_init_ram(&mch->smm_base, OBJECT(mch), "SMM BASE", MCH_HOST_BRIDGE_SMRAM_C_SIZE, &error_fatal);
+    memory_region_set_enabled(&mch->smm_base, true);
+    memory_region_add_subregion(&mch->smram, 0x30000, &mch->smm_base);
+
+    memory_region_init_alias(&mch->smm_base_alias, OBJECT(mch), "smim_base_alias",
+                             &mch->smm_base, 0, MCH_HOST_BRIDGE_SMRAM_C_SIZE);
+    memory_region_set_enabled(&mch->smm_base_alias, true);
+    memory_region_add_subregion_overlap(mch->system_memory, MCH_HOST_BRIDGE_SMRAM_C_BASE, &mch->smm_base_alias, 1);
+
     object_property_add_const_link(qdev_get_machine(), "smram",
                                    OBJECT(&mch->smram), &error_abort);
 
