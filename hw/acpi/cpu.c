@@ -473,6 +473,7 @@ void build_cpus_aml(Aml *table, MachineState *machine, CPUHotplugFeatures opts,
             Aml *next_cpu_cmd = aml_int(CPHP_GET_NEXT_CPU_WITH_EVENT_CMD);
 
             aml_append(method, aml_acquire(ctrl_lock, 0xFFFF));
+            aml_append(method, aml_store(aml_int(4), aml_name("%s", opts.smi_path)));
             aml_append(method, aml_store(one, has_event));
             while_ctx = aml_while(aml_equal(has_event, one));
             {
