@@ -15,14 +15,13 @@
 import errno
 import os
 import re
-import sys
 from contextlib import contextmanager
 
 from qapi.common import *
 from qapi.schema import QAPISchemaVisitor
 
 
-class QAPIGen(object):
+class QAPIGen:
 
     def __init__(self, fname):
         self.fname = fname
@@ -45,19 +44,21 @@ class QAPIGen(object):
         return ''
 
     def write(self, output_dir):
+        # Include paths starting with ../ are used to reuse modules of the main
+        # schema in specialised schemas. Don't overwrite the files that are
+        # already generated for the main schema.
+        if self.fname.startswith('../'):
+            return
         pathname = os.path.join(output_dir, self.fname)
-        dir = os.path.dirname(pathname)
-        if dir:
+        odir = os.path.dirname(pathname)
+        if odir:
             try:
-                os.makedirs(dir)
+                os.makedirs(odir)
             except os.error as e:
                 if e.errno != errno.EEXIST:
                     raise
         fd = os.open(pathname, os.O_RDWR | os.O_CREAT, 0o666)
-        if sys.version_info[0] >= 3:
-            f = open(fd, 'r+', encoding='utf-8')
-        else:
-            f = os.fdopen(fd, 'r+')
+        f = open(fd, 'r+', encoding='utf-8')
         text = self.get_content()
         oldtext = f.read(len(text) + 1)
         if text != oldtext:
@@ -86,7 +87,7 @@ def _wrap_ifcond(ifcond, before, after):
 class QAPIGenCCode(QAPIGen):
 
     def __init__(self, fname):
-        QAPIGen.__init__(self, fname)
+        super().__init__(fname)
         self._start_if = None
 
     def start_if(self, ifcond):
@@ -106,13 +107,13 @@ class QAPIGenCCode(QAPIGen):
 
     def get_content(self):
         assert self._start_if is None
-        return QAPIGen.get_content(self)
+        return super().get_content()
 
 
 class QAPIGenC(QAPIGenCCode):
 
     def __init__(self, fname, blurb, pydoc):
-        QAPIGenCCode.__init__(self, fname)
+        super().__init__(fname)
         self._blurb = blurb
         self._copyright = '\n * '.join(re.findall(r'^Copyright .*', pydoc,
                                                   re.MULTILINE))
@@ -145,7 +146,7 @@ char qapi_dummy_%(name)s;
 class QAPIGenH(QAPIGenC):
 
     def _top(self):
-        return QAPIGenC._top(self) + guardstart(self.fname)
+        return super()._top() + guardstart(self.fname)
 
     def _bottom(self):
         return guardend(self.fname)
@@ -180,7 +181,7 @@ def ifcontext(ifcond, *args):
 class QAPIGenDoc(QAPIGen):
 
     def _top(self):
-        return (QAPIGen._top(self)
+        return (super()._top()
                 + '@c AUTOMATICALLY GENERATED, DO NOT MODIFY\n\n')
 
 
@@ -264,6 +265,9 @@ class QAPISchemaModularCVisitor(QAPISchemaVisitor):
             (genc, genh) = self._module[name]
             genc.write(output_dir)
             genh.write(output_dir)
+
+    def _begin_system_module(self, name):
+        pass
 
     def _begin_user_module(self, name):
         pass
