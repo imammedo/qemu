@@ -155,6 +155,7 @@ F: include/hw/cpu/a*mpcore.h
 F: disas/arm.c
 F: disas/arm-a64.cc
 F: disas/libvixl/
+F: docs/system/target-arm.rst
 
 ARM SMMU
 M: Eric Auger <eric.auger@redhat.com>
@@ -491,6 +492,15 @@ F: hw/*/allwinner*
 F: include/hw/*/allwinner*
 F: hw/arm/cubieboard.c
 
+Allwinner-h3
+M: Niek Linnenbank <nieklinnenbank@gmail.com>
+L: qemu-arm@nongnu.org
+S: Maintained
+F: hw/*/allwinner-h3*
+F: include/hw/*/allwinner-h3*
+F: hw/arm/orangepi.c
+F: docs/system/orangepi.rst
+
 ARM PrimeCell and CMSDK devices
 M: Peter Maydell <peter.maydell@linaro.org>
 L: qemu-arm@nongnu.org
@@ -615,6 +625,7 @@ F: hw/arm/integratorcp.c
 F: hw/misc/arm_integrator_debug.c
 F: include/hw/misc/arm_integrator_debug.h
 F: tests/acceptance/machine_arm_integratorcp.py
+F: docs/system/arm/integratorcp.rst
 
 MCIMX6UL EVK / i.MX6ul
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -673,6 +684,7 @@ M: Peter Maydell <peter.maydell@linaro.org>
 L: qemu-arm@nongnu.org
 S: Odd Fixes
 F: hw/arm/musicpal.c
+F: docs/system/arm/musicpal.rst
 
 nSeries
 M: Andrzej Zaborowski <balrogg@gmail.com>
@@ -689,6 +701,7 @@ F: include/hw/display/blizzard.h
 F: include/hw/input/tsc2xxx.h
 F: include/hw/misc/cbus.h
 F: tests/acceptance/machine_arm_n8x0.py
+F: docs/system/arm/nseries.rst
 
 Palm
 M: Andrzej Zaborowski <balrogg@gmail.com>
@@ -698,6 +711,7 @@ S: Odd Fixes
 F: hw/arm/palm.c
 F: hw/input/tsc210x.c
 F: include/hw/input/tsc2xxx.h
+F: docs/system/arm/palm.rst
 
 Raspberry Pi
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -719,6 +733,7 @@ F: hw/arm/realview*
 F: hw/cpu/realview_mpcore.c
 F: hw/intc/realview_gic.c
 F: include/hw/intc/realview_gic.h
+F: docs/system/arm/realview.rst
 
 PXA2XX
 M: Andrzej Zaborowski <balrogg@gmail.com>
@@ -738,6 +753,7 @@ F: hw/misc/max111x.c
 F: include/hw/arm/pxa.h
 F: include/hw/arm/sharpsl.h
 F: include/hw/display/tc6393xb.h
+F: docs/system/arm/xscale.rst
 
 SABRELITE / i.MX6
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -773,6 +789,7 @@ L: qemu-arm@nongnu.org
 S: Maintained
 F: hw/*/stellaris*
 F: include/hw/input/gamepad.h
+F: docs/system/arm/stellaris.rst
 
 Versatile Express
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -786,6 +803,7 @@ L: qemu-arm@nongnu.org
 S: Maintained
 F: hw/*/versatile*
 F: hw/misc/arm_sysctl.c
+F: docs/system/arm/versatile.rst
 
 Virt
 M: Peter Maydell <peter.maydell@linaro.org>
@@ -1885,6 +1903,8 @@ L: qemu-block@nongnu.org
 S: Supported
 F: util/async.c
 F: util/aio-*.c
+F: util/aio-*.h
+F: util/fdmon-*.c
 F: block/io.c
 F: migration/block*
 F: include/block/aio.h
