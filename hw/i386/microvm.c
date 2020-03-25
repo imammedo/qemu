@@ -43,6 +43,9 @@
 #include "hw/i386/fw_cfg.h"
 #include "hw/virtio/virtio-mmio.h"
 #include "hw/acpi/acpi.h"
+#include "hw/acpi/generic_event_device.h"
+#include "hw/i386/microvm-acpi.h"
+#include "hw/i386/pc.h"
 
 #include "cpu.h"
 #include "elf.h"
@@ -131,8 +134,17 @@ static void microvm_devices_init(MicrovmMachineState *mms)
 
     /* Optional and legacy devices */
     if (acpi_enabled) {
-        ISADevice *acpi = isa_create_simple(isa_bus, "isa-acpi" /* FIXME */);
-        mms->acpi_dev = ACPI_DEVICE_IF(acpi);
+        DeviceState *dev;
+        uint32_t event = ACPI_GED_PWR_DOWN_EVT;
+
+        dev = qdev_create(NULL, TYPE_MICROVM_ACPI_GED);
+        qdev_prop_set_uint32(dev, "ged-event", event);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, GED_MMIO_BASE);
+        // not sure how to get irq for it
+        //sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(vms->gic, irq));
+        qdev_init_nofail(dev);
+
+        mms->acpi_dev = ACPI_DEVICE_IF(dev);
     }
 
     if (mms->pic == ON_OFF_AUTO_ON || mms->pic == ON_OFF_AUTO_AUTO) {
@@ -478,7 +490,9 @@ static void microvm_machine_set_auto_kernel_cmdline(Object *obj, bool value,
 
 static void microvm_machine_done(Notifier *notifier, void *data)
 {
-    acpi_setup();
+    MicrovmMachineState *mms = container_of(notifier, MicrovmMachineState,
+                                            machine_done);
+    microvm_acpi_setup(mms);
 }
 
 static void microvm_machine_initfn(Object *obj)

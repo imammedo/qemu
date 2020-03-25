@@ -27,6 +27,7 @@
 #include "hw/acpi/acpi_dev_interface.h"
 
 /* Platform virtio definitions */
+#define GED_MMIO_BASE      0xb0000000
 #define VIRTIO_MMIO_BASE      0xc0000000
 #define VIRTIO_NUM_TRANSPORTS 8
 #define VIRTIO_CMDLINE_MAXLEN 64
