@@ -1242,6 +1242,42 @@ static int qcow2_update_options(BlockDriverState *bs, QDict *options,
     return ret;
 }
 
+static int validate_compression_type(BDRVQcow2State *s, Error **errp)
+{
+    switch (s->compression_type) {
+    case QCOW2_COMPRESSION_TYPE_ZLIB:
+#ifdef CONFIG_ZSTD
+    case QCOW2_COMPRESSION_TYPE_ZSTD:
+#endif
+        break;
+
+    default:
+        error_setg(errp, "qcow2: unknown compression type: %u",
+                   s->compression_type);
+        return -ENOTSUP;
+    }
+
+    /*
+     * if the compression type differs from QCOW2_COMPRESSION_TYPE_ZLIB
+     * the incompatible feature flag must be set
+     */
+    if (s->compression_type == QCOW2_COMPRESSION_TYPE_ZLIB) {
+        if (s->incompatible_features & QCOW2_INCOMPAT_COMPRESSION) {
+            error_setg(errp, "qcow2: Compression type incompatible feature "
+                             "bit must not be set");
+            return -EINVAL;
+        }
+    } else {
+        if (!(s->incompatible_features & QCOW2_INCOMPAT_COMPRESSION)) {
+            error_setg(errp, "qcow2: Compression type incompatible feature "
+                             "bit must be set");
+            return -EINVAL;
+        }
+    }
+
+    return 0;
+}
+
 /* Called with s->lock held.  */
 static int coroutine_fn qcow2_do_open(BlockDriverState *bs, QDict *options,
                                       int flags, Error **errp)
@@ -1356,6 +1392,23 @@ static int coroutine_fn qcow2_do_open(BlockDriverState *bs, QDict *options,
     s->incompatible_features    = header.incompatible_features;
     s->compatible_features      = header.compatible_features;
     s->autoclear_features       = header.autoclear_features;
+
+    /*
+     * Handle compression type
+     * Older qcow2 images don't contain the compression type header.
+     * Distinguish them by the header length and use
+     * the only valid (default) compression type in that case
+     */
+    if (header.header_length > offsetof(QCowHeader, compression_type)) {
+        s->compression_type = header.compression_type;
+    } else {
+        s->compression_type = QCOW2_COMPRESSION_TYPE_ZLIB;
+    }
+
+    ret = validate_compression_type(s, errp);
+    if (ret) {
+        goto fail;
+    }
 
     if (s->incompatible_features & ~QCOW2_INCOMPAT_MASK) {
         void *feature_table = NULL;
@@ -1537,7 +1590,8 @@ static int coroutine_fn qcow2_do_open(BlockDriverState *bs, QDict *options,
     }
 
     /* Open external data file */
-    s->data_file = bdrv_open_child(NULL, options, "data-file", bs, &child_file,
+    s->data_file = bdrv_open_child(NULL, options, "data-file", bs,
+                                   &child_of_bds, BDRV_CHILD_DATA,
                                    true, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
@@ -1548,8 +1602,8 @@ static int coroutine_fn qcow2_do_open(BlockDriverState *bs, QDict *options,
     if (s->incompatible_features & QCOW2_INCOMPAT_DATA_FILE) {
         if (!s->data_file && s->image_data_file) {
             s->data_file = bdrv_open_child(s->image_data_file, options,
-                                           "data-file", bs, &child_file,
-                                           false, errp);
+                                           "data-file", bs, &child_of_bds,
+                                           BDRV_CHILD_DATA, false, errp);
             if (!s->data_file) {
                 ret = -EINVAL;
                 goto fail;
@@ -1560,6 +1614,12 @@ static int coroutine_fn qcow2_do_open(BlockDriverState *bs, QDict *options,
             ret = -EINVAL;
             goto fail;
         }
+
+        /* No data here */
+        bs->file->role &= ~BDRV_CHILD_DATA;
+
+        /* Must succeed because we have given up permissions if anything */
+        bdrv_child_refresh_perms(bs, bs->file, &error_abort);
     } else {
         if (s->data_file) {
             error_setg(errp, "'data-file' can only be set for images with an "
@@ -1810,8 +1870,8 @@ static int qcow2_open(BlockDriverState *bs, QDict *options, int flags,
         .ret = -EINPROGRESS
     };
 
-    bs->file = bdrv_open_child(NULL, options, "file", bs, &child_file,
-                               false, errp);
+    bs->file = bdrv_open_child(NULL, options, "file", bs, &child_of_bds,
+                               BDRV_CHILD_IMAGE, false, errp);
     if (!bs->file) {
         return -EINVAL;
     }
@@ -2728,6 +2788,11 @@ int qcow2_update_header(BlockDriverState *bs)
     total_size = bs->total_sectors * BDRV_SECTOR_SIZE;
     refcount_table_clusters = s->refcount_table_size >> (s->cluster_bits - 3);
 
+    ret = validate_compression_type(s, NULL);
+    if (ret) {
+        goto fail;
+    }
+
     *header = (QCowHeader) {
         /* Version 2 fields */
         .magic                  = cpu_to_be32(QCOW_MAGIC),
@@ -2750,6 +2815,7 @@ int qcow2_update_header(BlockDriverState *bs)
         .autoclear_features     = cpu_to_be64(s->autoclear_features),
         .refcount_order         = cpu_to_be32(s->refcount_order),
         .header_length          = cpu_to_be32(header_length),
+        .compression_type       = s->compression_type,
     };
 
     /* For older versions, write a shorter header */
@@ -2848,6 +2914,11 @@ int qcow2_update_header(BlockDriverState *bs)
                 .type = QCOW2_FEAT_TYPE_INCOMPATIBLE,
                 .bit  = QCOW2_INCOMPAT_DATA_FILE_BITNR,
                 .name = "external data file",
+            },
+            {
+                .type = QCOW2_FEAT_TYPE_INCOMPATIBLE,
+                .bit  = QCOW2_INCOMPAT_COMPRESSION_BITNR,
+                .name = "compression type",
             },
             {
                 .type = QCOW2_FEAT_TYPE_COMPATIBLE,
@@ -3287,6 +3358,7 @@ qcow2_co_create(BlockdevCreateOptions *create_options, Error **errp)
     uint64_t* refcount_table;
     Error *local_err = NULL;
     int ret;
+    uint8_t compression_type = QCOW2_COMPRESSION_TYPE_ZLIB;
 
     assert(create_options->driver == BLOCKDEV_DRIVER_QCOW2);
     qcow2_opts = &create_options->u.qcow2;
@@ -3404,6 +3476,31 @@ qcow2_co_create(BlockdevCreateOptions *create_options, Error **errp)
         }
     }
 
+    if (qcow2_opts->has_compression_type &&
+        qcow2_opts->compression_type != QCOW2_COMPRESSION_TYPE_ZLIB) {
+
+        ret = -EINVAL;
+
+        if (version < 3) {
+            error_setg(errp, "Non-zlib compression type is only supported with "
+                       "compatibility level 1.1 and above (use version=v3 or "
+                       "greater)");
+            goto out;
+        }
+
+        switch (qcow2_opts->compression_type) {
+#ifdef CONFIG_ZSTD
+        case QCOW2_COMPRESSION_TYPE_ZSTD:
+            break;
+#endif
+        default:
+            error_setg(errp, "Unknown compression type");
+            goto out;
+        }
+
+        compression_type = qcow2_opts->compression_type;
+    }
+
     /* Create BlockBackend to write to the image */
     blk = blk_new_with_bs(bs, BLK_PERM_WRITE | BLK_PERM_RESIZE, BLK_PERM_ALL,
                           errp);
@@ -3426,6 +3523,8 @@ qcow2_co_create(BlockdevCreateOptions *create_options, Error **errp)
         .refcount_table_offset      = cpu_to_be64(cluster_size),
         .refcount_table_clusters    = cpu_to_be32(1),
         .refcount_order             = cpu_to_be32(refcount_order),
+        /* don't deal with endianness since compression_type is 1 byte long */
+        .compression_type           = compression_type,
         .header_length              = cpu_to_be32(sizeof(*header)),
     };
 
@@ -3443,6 +3542,10 @@ qcow2_co_create(BlockdevCreateOptions *create_options, Error **errp)
     if (qcow2_opts->data_file_raw) {
         header->autoclear_features |=
             cpu_to_be64(QCOW2_AUTOCLEAR_DATA_FILE_RAW);
+    }
+    if (compression_type != QCOW2_COMPRESSION_TYPE_ZLIB) {
+        header->incompatible_features |=
+            cpu_to_be64(QCOW2_INCOMPAT_COMPRESSION);
     }
 
     ret = blk_pwrite(blk, 0, header, cluster_size, 0);
@@ -3629,6 +3732,7 @@ static int coroutine_fn qcow2_co_create_opts(BlockDriver *drv,
         { BLOCK_OPT_ENCRYPT,            BLOCK_OPT_ENCRYPT_FORMAT },
         { BLOCK_OPT_COMPAT_LEVEL,       "version" },
         { BLOCK_OPT_DATA_FILE_RAW,      "data-file-raw" },
+        { BLOCK_OPT_COMPRESSION_TYPE,   "compression-type" },
         { NULL, NULL },
     };
 
@@ -4925,6 +5029,7 @@ static ImageInfoSpecific *qcow2_get_specific_info(BlockDriverState *bs,
             .data_file          = g_strdup(s->image_data_file),
             .has_data_file_raw  = has_data_file(bs),
             .data_file_raw      = data_file_is_raw(bs),
+            .compression_type   = s->compression_type,
         };
     } else {
         /* if this assertion fails, this probably means a new version was
@@ -5330,6 +5435,22 @@ static int qcow2_amend_options(BlockDriverState *bs, QemuOpts *opts,
                                  "images");
                 return -EINVAL;
             }
+        } else if (!strcmp(desc->name, BLOCK_OPT_COMPRESSION_TYPE)) {
+            const char *ct_name =
+                qemu_opt_get(opts, BLOCK_OPT_COMPRESSION_TYPE);
+            int compression_type =
+                qapi_enum_parse(&Qcow2CompressionType_lookup, ct_name, -1,
+                                NULL);
+            if (compression_type == -1) {
+                error_setg(errp, "Unknown compression type: %s", ct_name);
+                return -ENOTSUP;
+            }
+
+            if (compression_type != s->compression_type) {
+                error_setg(errp, "Changing the compression type "
+                                 "is not supported");
+                return -ENOTSUP;
+            }
         } else {
             /* if this point is reached, this probably means a new option was
              * added without having it covered here */
@@ -5596,6 +5717,12 @@ static QemuOptsList qcow2_create_opts = {
             .help = "Width of a reference count entry in bits",
             .def_value_str = "16"
         },
+        {
+            .name = BLOCK_OPT_COMPRESSION_TYPE,
+            .type = QEMU_OPT_STRING,
+            .help = "Compression method used for image cluster compression",
+            .def_value_str = "zlib"
+        },
         { /* end of list */ }
     }
 };
@@ -5617,7 +5744,7 @@ BlockDriver bdrv_qcow2 = {
     .bdrv_reopen_commit_post = qcow2_reopen_commit_post,
     .bdrv_reopen_abort    = qcow2_reopen_abort,
     .bdrv_join_options    = qcow2_join_options,
-    .bdrv_child_perm      = bdrv_format_default_perms,
+    .bdrv_child_perm      = bdrv_default_perms,
     .bdrv_co_create_opts  = qcow2_co_create_opts,
     .bdrv_co_create       = qcow2_co_create,
     .bdrv_has_zero_init   = qcow2_has_zero_init,
@@ -5647,6 +5774,7 @@ BlockDriver bdrv_qcow2 = {
     .bdrv_save_vmstate    = qcow2_save_vmstate,
     .bdrv_load_vmstate    = qcow2_load_vmstate,
 
+    .is_format                  = true,
     .supports_backing           = true,
     .bdrv_change_backing_file   = qcow2_change_backing_file,
 

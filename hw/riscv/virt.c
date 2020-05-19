@@ -92,10 +92,9 @@ static PFlashCFI01 *virt_flash_create1(RISCVVirtState *s,
     qdev_prop_set_uint16(dev, "id3", 0x00);
     qdev_prop_set_string(dev, "name", name);
 
-    object_property_add_child(OBJECT(s), name, OBJECT(dev),
-                              &error_abort);
+    object_property_add_child(OBJECT(s), name, OBJECT(dev));
     object_property_add_alias(OBJECT(s), alias_prop_name,
-                              OBJECT(dev), "drive", &error_abort);
+                              OBJECT(dev), "drive");
 
     return PFLASH_CFI01(dev);
 }
@@ -112,7 +111,7 @@ static void virt_flash_map1(PFlashCFI01 *flash,
 {
     DeviceState *dev = DEVICE(flash);
 
-    assert(size % VIRT_FLASH_SECTOR_SIZE == 0);
+    assert(QEMU_IS_ALIGNED(size, VIRT_FLASH_SECTOR_SIZE));
     assert(size / VIRT_FLASH_SECTOR_SIZE <= UINT32_MAX);
     qdev_prop_set_uint32(dev, "num-blocks", size / VIRT_FLASH_SECTOR_SIZE);
     qdev_init_nofail(dev);
