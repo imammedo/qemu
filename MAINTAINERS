@@ -85,6 +85,7 @@ Architecture support
 --------------------
 S390 general architecture support
 M: Cornelia Huck <cohuck@redhat.com>
+M: Thomas Huth <thuth@redhat.com>
 S: Supported
 F: default-configs/s390x-softmmu.mak
 F: gdb-xml/s390*.xml
@@ -1237,6 +1238,15 @@ F: hw/rtc/m41t80.c
 F: pc-bios/canyonlands.dt[sb]
 F: pc-bios/u-boot-sam460ex-20100605.bin
 F: roms/u-boot-sam460ex
+
+RISC-V Machines
+---------------
+OpenTitan
+M: Alistair Francis <Alistair.Francis@wdc.com>
+L: qemu-riscv@nongnu.org
+S: Supported
+F: hw/riscv/opentitan.c
+F: include/hw/riscv/opentitan.h
 
 SH4 Machines
 ------------
