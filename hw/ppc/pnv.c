@@ -21,6 +21,7 @@
 #include "qemu-common.h"
 #include "qemu/units.h"
 #include "qapi/error.h"
+#include "sysemu/qtest.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/numa.h"
 #include "sysemu/reset.h"
@@ -587,9 +588,11 @@ static void pnv_reset(MachineState *machine)
     bmc = pnv_bmc_find(&error_fatal);
     if (!pnv->bmc) {
         if (!bmc) {
-            warn_report("machine has no BMC device. Use '-device "
-                        "ipmi-bmc-sim,id=bmc0 -device isa-ipmi-bt,bmc=bmc0,irq=10' "
-                        "to define one");
+            if (!qtest_enabled()) {
+                warn_report("machine has no BMC device. Use '-device "
+                            "ipmi-bmc-sim,id=bmc0 -device isa-ipmi-bt,bmc=bmc0,irq=10' "
+                            "to define one");
+            }
         } else {
             pnv_bmc_set_pnor(bmc, pnv->pnor);
             pnv->bmc = bmc;
@@ -730,8 +733,7 @@ static void pnv_init(MachineState *machine)
      */
     dev = qdev_new(TYPE_PNV_PNOR);
     if (pnor) {
-        qdev_prop_set_drive(dev, "drive", blk_by_legacy_dinfo(pnor),
-                            &error_abort);
+        qdev_prop_set_drive(dev, "drive", blk_by_legacy_dinfo(pnor));
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     pnv->pnor = PNV_PNOR(dev);

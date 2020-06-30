@@ -129,8 +129,8 @@ IDEDevice *ide_create_drive(IDEBus *bus, int unit, DriveInfo *drive)
 
     dev = qdev_new(drive->media_cd ? "ide-cd" : "ide-hd");
     qdev_prop_set_uint32(dev, "unit", unit);
-    qdev_prop_set_drive(dev, "drive", blk_by_legacy_dinfo(drive),
-                        &error_fatal);
+    qdev_prop_set_drive_err(dev, "drive", blk_by_legacy_dinfo(drive),
+                            &error_fatal);
     qdev_realize_and_unref(dev, &bus->qbus, &error_fatal);
     return DO_UPCAST(IDEDevice, qdev, dev);
 }
@@ -187,7 +187,10 @@ static void ide_dev_initfn(IDEDevice *dev, IDEDriveKind kind, Error **errp)
         return;
     }
 
-    blkconf_blocksizes(&dev->conf);
+    if (!blkconf_blocksizes(&dev->conf, errp)) {
+        return;
+    }
+
     if (dev->conf.logical_block_size != 512) {
         error_setg(errp, "logical_block_size must be 512 for IDE");
         return;

@@ -842,6 +842,7 @@ M: Peter Maydell <peter.maydell@linaro.org>
 L: qemu-arm@nongnu.org
 S: Maintained
 F: hw/*/versatile*
+F: include/hw/i2c/arm_sbcon_i2c.h
 F: hw/misc/arm_sysctl.c
 F: docs/system/arm/versatile.rst
 
@@ -1095,6 +1096,12 @@ F: hw/isa/vt82c686.c
 F: hw/pci-host/bonito.c
 F: include/hw/isa/vt82c686.h
 
+Loongson-3 virtual platforms
+M: Huacai Chen <chenhc@lemote.com>
+R: Jiaxun Yang <jiaxun.yang@flygoat.com>
+S: Maintained
+F: hw/intc/loongson_liointc.c
+
 Boston
 M: Paul Burton <pburton@wavecomp.com>
 R: Aleksandar Rikalo <aleksandar.rikalo@syrmia.com>
@@ -1250,7 +1257,20 @@ M: Alistair Francis <Alistair.Francis@wdc.com>
 L: qemu-riscv@nongnu.org
 S: Supported
 F: hw/riscv/opentitan.c
+F: hw/char/ibex_uart.c
+F: hw/intc/ibex_plic.c
 F: include/hw/riscv/opentitan.h
+F: include/hw/char/ibex_uart.h
+F: include/hw/intc/ibex_plic.h
+
+RX Machines
+-----------
+rx-gdbsim
+M: Yoshinori Sato <ysato@users.sourceforge.jp>
+S: Maintained
+F: docs/system/target-rx.rst
+F: hw/rx/rx-gdbsim.c
+F: tests/acceptance/machine_rx_gdbsim.py
 
 SH4 Machines
 ------------
@@ -1260,13 +1280,15 @@ R: Magnus Damm <magnus.damm@gmail.com>
 S: Maintained
 F: hw/sh4/r2d.c
 F: hw/intc/sh_intc.c
-F: hw/timer/sh_timer.c
+F: include/hw/sh4/sh_intc.h
 
 Shix
 M: Yoshinori Sato <ysato@users.sourceforge.jp>
 R: Magnus Damm <magnus.damm@gmail.com>
 S: Odd Fixes
 F: hw/sh4/shix.c
+F: hw/intc/sh_intc.c
+F: include/hw/sh4/sh_intc.h
 
 SPARC Machines
 --------------
@@ -1961,6 +1983,26 @@ F: hw/*/*xive*
 F: include/hw/*/*xive*
 F: docs/*/*xive*
 
+Renesas peripherals
+M: Yoshinori Sato <ysato@users.sourceforge.jp>
+R: Magnus Damm <magnus.damm@gmail.com>
+S: Maintained
+F: hw/char/renesas_sci.c
+F: hw/char/sh_serial.c
+F: hw/timer/renesas_*.c
+F: hw/timer/sh_timer.c
+F: include/hw/char/renesas_sci.h
+F: include/hw/sh4/sh.h
+F: include/hw/timer/renesas_*.h
+
+Renesas RX peripherals
+M: Yoshinori Sato <ysato@users.sourceforge.jp>
+S: Maintained
+F: hw/intc/rx_icu.c
+F: hw/rx/
+F: include/hw/intc/rx_icu.h
+F: include/hw/rx/
+
 Subsystems
 ----------
 Audio
@@ -2395,7 +2437,7 @@ F: hw/tpm/*
 F: include/hw/acpi/tpm.h
 F: include/sysemu/tpm*
 F: qapi/tpm.json
-F: backends/tpm.c
+F: backends/tpm/
 F: tests/qtest/*tpm*
 T: git https://github.com/stefanberger/qemu-tpm.git tpm-next
 
@@ -2534,6 +2576,7 @@ F: net/filter-replay.c
 F: include/sysemu/replay.h
 F: docs/replay.txt
 F: stubs/replay.c
+F: tests/acceptance/replay_kernel.py
 
 IOVA Tree
 M: Peter Xu <peterx@redhat.com>
@@ -2941,6 +2984,14 @@ S: Maintained
 F: tests/tcg/Makefile
 F: tests/tcg/Makefile.include
 
+Acceptance (Integration) Testing with the Avocado framework
+W: https://trello.com/b/6Qi1pxVn/avocado-qemu
+R: Cleber Rosa <crosa@redhat.com>
+R: Philippe Mathieu-Daudé <philmd@redhat.com>
+R: Wainer dos Santos Moschetta <wainersm@redhat.com>
+S: Odd Fixes
+F: tests/acceptance/
+
 Documentation
 -------------
 Build system architecture
@@ -2974,3 +3025,10 @@ M: Peter Maydell <peter.maydell@linaro.org>
 S: Maintained
 F: docs/conf.py
 F: docs/*/conf.py
+
+Miscellaneous
+-------------
+Performance Tools and Tests
+M: Ahmed Karaman <ahmedkhaledkaraman@gmail.com>
+S: Maintained
+F: scripts/performance/
