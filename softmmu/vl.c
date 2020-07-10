@@ -1772,8 +1772,8 @@ static bool vga_interface_available(VGAInterfaceType t)
 
     assert(t < VGA_TYPE_MAX);
     return !ti->class_names[0] ||
-           object_class_by_name(ti->class_names[0]) ||
-           object_class_by_name(ti->class_names[1]);
+           module_object_class_by_name(ti->class_names[0]) ||
+           module_object_class_by_name(ti->class_names[1]);
 }
 
 static const char *
@@ -3832,17 +3832,7 @@ void qemu_init(int argc, char **argv, char **envp)
                                               machine_class);
 
     os_daemonize();
-
-    /*
-     * If QTest is enabled, keep the rcu_atfork enabled, since system processes
-     * may be forked testing purposes (e.g. fork-server based fuzzing) The fork
-     * should happen before a signle cpu instruction is executed, to prevent
-     * deadlocks. See commit 73c6e40, rcu: "completely disable pthread_atfork
-     * callbacks as soon as possible"
-     */
-    if (!qtest_enabled()) {
-        rcu_disable_atfork();
-    }
+    rcu_disable_atfork();
 
     if (pid_file && !qemu_write_pidfile(pid_file, &err)) {
         error_reportf_err(err, "cannot create PID file: ");
@@ -4131,12 +4121,17 @@ void qemu_init(int argc, char **argv, char **envp)
                       fsdev_init_func, NULL, &error_fatal);
 #endif
 
+    /* spice needs the timers to be initialized by this point */
+    /* spice must initialize before audio as it changes the default auiodev */
+    qemu_spice_init();
+
     /*
-     * Note: we need to create block backends before
+     * Note: we need to create audio and block backends before
      * machine_set_property(), so machine properties can refer to
      * them.
      */
     configure_blockdev(&bdo_queue, machine_class, snapshot);
+    audio_init_audiodevs();
 
     machine_opts = qemu_get_machine_opts();
     qemu_opt_foreach(machine_opts, machine_set_property, current_machine,
@@ -4229,9 +4224,6 @@ void qemu_init(int argc, char **argv, char **envp)
         /* fall back to the -kernel/-append */
         semihosting_arg_fallback(kernel_filename, kernel_cmdline);
     }
-
-    /* spice needs the timers to be initialized by this point */
-    qemu_spice_init();
 
     cpu_ticks_init();
 
@@ -4341,8 +4333,6 @@ void qemu_init(int argc, char **argv, char **envp)
         numa_uses_legacy_mem() && !current_machine->ram_memdev_id) {
         create_default_memdev(current_machine, mem_path);
     }
-
-    audio_init_audiodevs();
 
     /* from here on runstate is RUN_STATE_PRELAUNCH */
     machine_run_board_init(current_machine);
