@@ -102,6 +102,8 @@ struct NBDExport {
 };
 
 static QTAILQ_HEAD(, NBDExport) exports = QTAILQ_HEAD_INITIALIZER(exports);
+static QTAILQ_HEAD(, NBDExport) closed_exports =
+        QTAILQ_HEAD_INITIALIZER(closed_exports);
 
 /* NBDExportMetaContexts represents a list of contexts to be exported,
  * as selected by NBD_OPT_SET_META_CONTEXT. Also used for
@@ -211,6 +213,7 @@ static int GCC_FMT_ATTR(4, 0)
 nbd_negotiate_send_rep_verr(NBDClient *client, uint32_t type,
                             Error **errp, const char *fmt, va_list va)
 {
+    ERRP_GUARD();
     g_autofree char *msg = NULL;
     int ret;
     size_t len;
@@ -382,6 +385,7 @@ static int nbd_opt_read_name(NBDClient *client, char **name, uint32_t *length,
 static int nbd_negotiate_send_rep_list(NBDClient *client, NBDExport *exp,
                                        Error **errp)
 {
+    ERRP_GUARD();
     size_t name_len, desc_len;
     uint32_t len;
     const char *name = exp->name ? exp->name : "";
@@ -445,6 +449,7 @@ static void nbd_check_meta_export(NBDClient *client)
 static int nbd_negotiate_handle_export_name(NBDClient *client, bool no_zeroes,
                                             Error **errp)
 {
+    ERRP_GUARD();
     g_autofree char *name = NULL;
     char buf[NBD_REPLY_EXPORT_NAME_SIZE] = "";
     size_t len;
@@ -1289,6 +1294,7 @@ static int nbd_negotiate_options(NBDClient *client, Error **errp)
  */
 static coroutine_fn int nbd_negotiate(NBDClient *client, Error **errp)
 {
+    ERRP_GUARD();
     char buf[NBD_OLDSTYLE_NEGOTIATE_SIZE] = "";
     int ret;
 
@@ -1655,6 +1661,7 @@ void nbd_export_close(NBDExport *exp)
         g_free(exp->name);
         exp->name = NULL;
         QTAILQ_REMOVE(&exports, exp, next);
+        QTAILQ_INSERT_TAIL(&closed_exports, exp, next);
     }
     g_free(exp->description);
     exp->description = NULL;
@@ -1663,6 +1670,7 @@ void nbd_export_close(NBDExport *exp)
 
 void nbd_export_remove(NBDExport *exp, NbdServerRemoveMode mode, Error **errp)
 {
+    ERRP_GUARD();
     if (mode == NBD_SERVER_REMOVE_MODE_HARD || QTAILQ_EMPTY(&exp->clients)) {
         nbd_export_close(exp);
         return;
@@ -1717,7 +1725,9 @@ void nbd_export_put(NBDExport *exp)
             g_free(exp->export_bitmap_context);
         }
 
+        QTAILQ_REMOVE(&closed_exports, exp, next);
         g_free(exp);
+        aio_wait_kick();
     }
 }
 
@@ -1737,6 +1747,9 @@ void nbd_export_close_all(void)
         nbd_export_close(exp);
         aio_context_release(aio_context);
     }
+
+    AIO_WAIT_WHILE(NULL, !(QTAILQ_EMPTY(&exports) &&
+                           QTAILQ_EMPTY(&closed_exports)));
 }
 
 static int coroutine_fn nbd_co_send_iov(NBDClient *client, struct iovec *iov,

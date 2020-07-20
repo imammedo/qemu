@@ -764,16 +764,13 @@ static DeviceState *ppce500_init_mpic_qemu(PPCE500MachineState *pms,
 static DeviceState *ppce500_init_mpic_kvm(const PPCE500MachineClass *pmc,
                                           IrqLines *irqs, Error **errp)
 {
-    Error *err = NULL;
     DeviceState *dev;
     CPUState *cs;
 
     dev = qdev_new(TYPE_KVM_OPENPIC);
     qdev_prop_set_uint32(dev, "model", pmc->mpic_version);
 
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &err);
-    if (err) {
-        error_propagate(errp, err);
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), errp)) {
         object_unparent(OBJECT(dev));
         return NULL;
     }
@@ -944,7 +941,7 @@ void ppce500_init(MachineState *machine)
     memory_region_add_subregion(ccsr_addr_space, MPC8544_I2C_REGS_OFFSET,
                                 sysbus_mmio_get_region(s, 0));
     i2c = (I2CBus *)qdev_get_child_bus(dev, "i2c");
-    i2c_create_slave(i2c, "ds1338", RTC_REGS_OFFSET);
+    i2c_slave_create_simple(i2c, "ds1338", RTC_REGS_OFFSET);
 
 
     /* General Utility device */

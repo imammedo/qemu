@@ -1312,8 +1312,8 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
     qdev_prop_set_uint32(nvic, "num-irq", NUM_IRQ_LINES);
     qdev_prop_set_string(nvic, "cpu-type", ms->cpu_type);
     qdev_prop_set_bit(nvic, "enable-bitband", true);
-    object_property_set_link(OBJECT(nvic), OBJECT(get_system_memory()),
-                                     "memory", &error_abort);
+    object_property_set_link(OBJECT(nvic), "memory",
+                             OBJECT(get_system_memory()), &error_abort);
     /* This will exit with an error if the user passed us a bad cpu_type */
     sysbus_realize_and_unref(SYS_BUS_DEVICE(nvic), &error_fatal);
 
@@ -1380,7 +1380,7 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
                                    qdev_get_gpio_in(nvic, 8));
         i2c = (I2CBus *)qdev_get_child_bus(dev, "i2c");
         if (board->peripherals & BP_OLED_I2C) {
-            i2c_create_slave(i2c, "ssd0303", 0x3d);
+            i2c_slave_create_simple(i2c, "ssd0303", 0x3d);
         }
     }
 

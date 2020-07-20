@@ -218,17 +218,17 @@ static void init_cpus(MachineState *ms, const char *cpu_type,
         Object *cpuobj = object_new(cpu_type);
 
         if (!secure) {
-            object_property_set_bool(cpuobj, false, "has_el3", NULL);
+            object_property_set_bool(cpuobj, "has_el3", false, NULL);
         }
         if (!virt) {
             if (object_property_find(cpuobj, "has_el2", NULL)) {
-                object_property_set_bool(cpuobj, false, "has_el2", NULL);
+                object_property_set_bool(cpuobj, "has_el2", false, NULL);
             }
         }
 
         if (object_property_find(cpuobj, "reset-cbar", NULL)) {
-            object_property_set_int(cpuobj, periphbase,
-                                    "reset-cbar", &error_abort);
+            object_property_set_int(cpuobj, "reset-cbar", periphbase,
+                                    &error_abort);
         }
         qdev_realize(DEVICE(cpuobj), NULL, &error_fatal);
     }
@@ -642,7 +642,7 @@ static void vexpress_common_init(MachineState *machine)
 
     dev = sysbus_create_simple(TYPE_VERSATILE_I2C, map[VE_SERIALDVI], NULL);
     i2c = (I2CBus *)qdev_get_child_bus(dev, "i2c");
-    i2c_create_slave(i2c, "sii9022", 0x39);
+    i2c_slave_create_simple(i2c, "sii9022", 0x39);
 
     sysbus_create_simple("pl031", map[VE_RTC], pic[4]); /* RTC */
 

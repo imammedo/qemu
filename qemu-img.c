@@ -465,23 +465,18 @@ static int add_old_style_options(const char *fmt, QemuOpts *opts,
                                  const char *base_filename,
                                  const char *base_fmt)
 {
-    Error *err = NULL;
-
     if (base_filename) {
-        qemu_opt_set(opts, BLOCK_OPT_BACKING_FILE, base_filename, &err);
-        if (err) {
+        if (!qemu_opt_set(opts, BLOCK_OPT_BACKING_FILE, base_filename,
+                          NULL)) {
             error_report("Backing file not supported for file format '%s'",
                          fmt);
-            error_free(err);
             return -1;
         }
     }
     if (base_fmt) {
-        qemu_opt_set(opts, BLOCK_OPT_BACKING_FMT, base_fmt, &err);
-        if (err) {
+        if (!qemu_opt_set(opts, BLOCK_OPT_BACKING_FMT, base_fmt, NULL)) {
             error_report("Backing file format not supported for file "
                          "format '%s'", fmt);
-            error_free(err);
             return -1;
         }
     }
@@ -2369,8 +2364,8 @@ static int img_convert(int argc, char **argv)
     }
 
     if (skip_create && options) {
-        warn_report("-o has no effect when skipping image creation");
-        warn_report("This will become an error in future QEMU versions.");
+        error_report("-o has no effect when skipping image creation");
+        goto fail_getopt;
     }
 
     if (s.has_zero_init && !skip_create) {
@@ -2487,8 +2482,7 @@ static int img_convert(int argc, char **argv)
 
         opts = qemu_opts_create(create_opts, NULL, 0, &error_abort);
         if (options) {
-            qemu_opts_do_parse(opts, options, NULL, &local_err);
-            if (local_err) {
+            if (!qemu_opts_do_parse(opts, options, NULL, &local_err)) {
                 error_report_err(local_err);
                 ret = -1;
                 goto out;
@@ -2521,6 +2515,13 @@ static int img_convert(int argc, char **argv)
                      "concatenating multiple input images");
         ret = -1;
         goto out;
+    }
+
+    if (out_baseimg_param) {
+        if (!qemu_opt_get(opts, BLOCK_OPT_BACKING_FMT)) {
+            warn_report("Deprecated use of backing file without explicit "
+                        "backing format");
+        }
     }
 
     /* Check if compression is supported */
@@ -3216,12 +3217,9 @@ static int img_map(int argc, char **argv)
     curr.start = start_offset;
     while (curr.start + curr.length < length) {
         int64_t offset = curr.start + curr.length;
-        int64_t n;
+        int64_t n = length - offset;
 
-        /* Probe up to 1 GiB at a time.  */
-        n = MIN(1 * GiB, length - offset);
         ret = get_block_status(bs, offset, n, &next);
-
         if (ret < 0) {
             error_report("Could not read file metadata: %s", strerror(-ret));
             goto out;
@@ -3806,9 +3804,9 @@ static int img_rebase(int argc, char **argv)
      * doesn't change when we switch the backing file.
      */
     if (out_baseimg && *out_baseimg) {
-        ret = bdrv_change_backing_file(bs, out_baseimg, out_basefmt);
+        ret = bdrv_change_backing_file(bs, out_baseimg, out_basefmt, true);
     } else {
-        ret = bdrv_change_backing_file(bs, NULL, NULL);
+        ret = bdrv_change_backing_file(bs, NULL, NULL, false);
     }
 
     if (ret == -ENOSPC) {
@@ -3963,8 +3961,7 @@ static int img_resize(int argc, char **argv)
 
     /* Parse size */
     param = qemu_opts_create(&resize_options, NULL, 0, &error_abort);
-    qemu_opt_set(param, BLOCK_OPT_SIZE, size, &err);
-    if (err) {
+    if (!qemu_opt_set(param, BLOCK_OPT_SIZE, size, &err)) {
         error_report_err(err);
         ret = -1;
         qemu_opts_del(param);
@@ -4007,20 +4004,12 @@ static int img_resize(int argc, char **argv)
     }
 
     if (total_size < current_size && !shrink) {
+        error_report("Use the --shrink option to perform a shrink operation.");
         warn_report("Shrinking an image will delete all data beyond the "
                     "shrunken image's end. Before performing such an "
                     "operation, make sure there is no important data there.");
-
-        if (g_strcmp0(bdrv_get_format_name(blk_bs(blk)), "raw") != 0) {
-            error_report(
-              "Use the --shrink option to perform a shrink operation.");
-            ret = -1;
-            goto out;
-        } else {
-            warn_report("Using the --shrink option will suppress this message. "
-                        "Note that future versions of qemu-img may refuse to "
-                        "shrink images without this option.");
-        }
+        ret = -1;
+        goto out;
     }
 
     /*
@@ -4215,21 +4204,14 @@ static int img_amend(int argc, char **argv)
 
     amend_opts = qemu_opts_append(amend_opts, bs->drv->amend_opts);
     opts = qemu_opts_create(amend_opts, NULL, 0, &error_abort);
-    qemu_opts_do_parse(opts, options, NULL, &err);
-
-    if (err) {
+    if (!qemu_opts_do_parse(opts, options, NULL, &err)) {
         /* Try to parse options using the create options */
-        Error *err1 = NULL;
         amend_opts = qemu_opts_append(amend_opts, bs->drv->create_opts);
         qemu_opts_del(opts);
         opts = qemu_opts_create(amend_opts, NULL, 0, &error_abort);
-        qemu_opts_do_parse(opts, options, NULL, &err1);
-
-        if (!err1) {
+        if (qemu_opts_do_parse(opts, options, NULL, NULL)) {
             error_append_hint(&err,
                               "This option is only supported for image creation\n");
-        } else {
-            error_free(err1);
         }
 
         error_report_err(err);
@@ -5363,8 +5345,7 @@ static int img_measure(int argc, char **argv)
     create_opts = qemu_opts_append(create_opts, bdrv_file.create_opts);
     opts = qemu_opts_create(create_opts, NULL, 0, &error_abort);
     if (options) {
-        qemu_opts_do_parse(opts, options, NULL, &local_err);
-        if (local_err) {
+        if (!qemu_opts_do_parse(opts, options, NULL, &local_err)) {
             error_report_err(local_err);
             error_report("Invalid options for file format '%s'", out_fmt);
             goto out;

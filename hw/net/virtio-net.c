@@ -3137,10 +3137,9 @@ static bool failover_replug_primary(VirtIONet *n, Error **errp)
     }
     qdev_set_parent_bus(n->primary_dev, n->primary_bus);
     n->primary_should_be_hidden = false;
-    qemu_opt_set_bool(n->primary_device_opts,
-                      "partially_hotplugged", true, &err);
-    if (err) {
-        goto out;
+    if (!qemu_opt_set_bool(n->primary_device_opts,
+                           "partially_hotplugged", true, errp)) {
+        return false;
     }
     hotplug_ctrl = qdev_get_hotplug_handler(n->primary_dev);
     if (hotplug_ctrl) {
@@ -3417,6 +3416,7 @@ static void virtio_net_device_unrealize(DeviceState *dev)
     g_free(n->vlans);
 
     if (n->failover) {
+        device_listener_unregister(&n->primary_listener);
         g_free(n->primary_device_id);
         g_free(n->standby_id);
         qobject_unref(n->primary_device_dict);

@@ -59,6 +59,7 @@ static bool colo_compare_active;
 static QemuMutex event_mtx;
 static QemuCond event_complete_cond;
 static int event_unhandled_count;
+static uint32_t max_queue_size;
 
 /*
  *  + CompareState ++
@@ -222,7 +223,7 @@ static void fill_pkt_tcp_info(void *data, uint32_t *max_ack)
  */
 static int colo_insert_packet(GQueue *queue, Packet *pkt, uint32_t *max_ack)
 {
-    if (g_queue_get_length(queue) <= MAX_QUEUE_SIZE) {
+    if (g_queue_get_length(queue) <= max_queue_size) {
         if (pkt->ip->ip_p == IPPROTO_TCP) {
             fill_pkt_tcp_info(pkt, max_ack);
             g_queue_insert_sorted(queue,
@@ -1093,22 +1094,17 @@ static void compare_set_timeout(Object *obj, Visitor *v,
                                 Error **errp)
 {
     CompareState *s = COLO_COMPARE(obj);
-    Error *local_err = NULL;
     uint32_t value;
 
-    visit_type_uint32(v, name, &value, &local_err);
-    if (local_err) {
-        goto out;
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
     }
     if (!value) {
-        error_setg(&local_err, "Property '%s.%s' requires a positive value",
+        error_setg(errp, "Property '%s.%s' requires a positive value",
                    object_get_typename(obj), name);
-        goto out;
+        return;
     }
     s->compare_timeout = value;
-
-out:
-    error_propagate(errp, local_err);
 }
 
 static void compare_get_expired_scan_cycle(Object *obj, Visitor *v,
@@ -1126,6 +1122,32 @@ static void compare_set_expired_scan_cycle(Object *obj, Visitor *v,
                                            Error **errp)
 {
     CompareState *s = COLO_COMPARE(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    if (!value) {
+        error_setg(errp, "Property '%s.%s' requires a positive value",
+                   object_get_typename(obj), name);
+        return;
+    }
+    s->expired_scan_cycle = value;
+}
+
+static void get_max_queue_size(Object *obj, Visitor *v,
+                               const char *name, void *opaque,
+                               Error **errp)
+{
+    uint32_t value = max_queue_size;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static void set_max_queue_size(Object *obj, Visitor *v,
+                               const char *name, void *opaque,
+                               Error **errp)
+{
     Error *local_err = NULL;
     uint32_t value;
 
@@ -1138,7 +1160,7 @@ static void compare_set_expired_scan_cycle(Object *obj, Visitor *v,
                    object_get_typename(obj), name);
         goto out;
     }
-    s->expired_scan_cycle = value;
+    max_queue_size = value;
 
 out:
     error_propagate(errp, local_err);
@@ -1261,6 +1283,11 @@ static void colo_compare_complete(UserCreatable *uc, Error **errp)
         s->expired_scan_cycle = REGULAR_PACKET_CHECK_MS;
     }
 
+    if (!max_queue_size) {
+        /* Set default queue size to 1024 */
+        max_queue_size = MAX_QUEUE_SIZE;
+    }
+
     if (find_and_check_chardev(&chr, s->pri_indev, errp) ||
         !qemu_chr_fe_init(&s->chr_pri_in, chr, errp)) {
         return;
@@ -1379,6 +1406,10 @@ static void colo_compare_init(Object *obj)
     object_property_add(obj, "expired_scan_cycle", "uint32",
                         compare_get_expired_scan_cycle,
                         compare_set_expired_scan_cycle, NULL, NULL);
+
+    object_property_add(obj, "max_queue_size", "uint32",
+                        get_max_queue_size,
+                        set_max_queue_size, NULL, NULL);
 
     s->vnet_hdr = false;
     object_property_add_bool(obj, "vnet_hdr_support", compare_get_vnet_hdr,
