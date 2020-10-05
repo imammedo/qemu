@@ -665,7 +665,7 @@ out:
     srco->co = NULL;
     srco->ret = ret;
     /* Set srco->finished before reading bs->wakeup.  */
-    atomic_mb_set(&srco->finished, true);
+    qatomic_mb_set(&srco->finished, true);
     if (srco->bs) {
         bdrv_wakeup(srco->bs);
     }
@@ -740,7 +740,7 @@ static coroutine_fn void reconnect_to_sdog(void *opaque)
         if (s->fd < 0) {
             trace_sheepdog_reconnect_to_sdog();
             error_report_err(local_err);
-            qemu_co_sleep_ns(QEMU_CLOCK_REALTIME, 1000000000ULL);
+            qemu_co_sleep_ns(QEMU_CLOCK_REALTIME, NANOSECONDS_PER_SECOND);
         }
     };
 
