@@ -10,6 +10,7 @@ else
   keyval = import('unstable-keyval')
 endif
 ss = import('sourceset')
+fs = import('fs')
 
 sh = find_program('sh')
 cc = meson.get_compiler('c')
@@ -50,6 +51,28 @@ configure_file(input: files('scripts/ninjatool.py'),
                output: 'ninjatool',
                configuration: config_host)
 
+if cpu in ['x86', 'x86_64']
+  kvm_targets = ['i386-softmmu', 'x86_64-softmmu']
+elif cpu == 'aarch64'
+  kvm_targets = ['aarch64-softmmu']
+elif cpu == 's390x'
+  kvm_targets = ['s390x-softmmu']
+elif cpu in ['ppc', 'ppc64']
+  kvm_targets = ['ppc-softmmu', 'ppc64-softmmu']
+else
+  kvm_targets = []
+endif
+
+accelerator_targets = { 'CONFIG_KVM': kvm_targets }
+if cpu in ['x86', 'x86_64']
+  accelerator_targets += {
+    'CONFIG_HAX': ['i386-softmmu', 'x86_64-softmmu'],
+    'CONFIG_XEN': ['i386-softmmu', 'x86_64-softmmu'],
+    'CONFIG_HVF': ['x86_64-softmmu'],
+    'CONFIG_WHPX': ['i386-softmmu', 'x86_64-softmmu'],
+  }
+endif
+
 ##################
 # Compiler flags #
 ##################
@@ -80,11 +103,13 @@ if host_machine.system() == 'darwin'
   add_languages('objc', required: false, native: false)
 endif
 
-if 'SPARSE_CFLAGS' in config_host
+sparse = find_program('cgcc', required: get_option('sparse'))
+if sparse.found()
   run_target('sparse',
              command: [find_program('scripts/check_sparse.py'),
-                       config_host['SPARSE_CFLAGS'].split(),
-                       'compile_commands.json'])
+                       'compile_commands.json', sparse.full_path(), '-Wbitwise',
+                       '-Wno-transparent-union', '-Wno-old-initializer',
+                       '-Wno-non-pointer-null'])
 endif
 
 ###########################################
@@ -102,8 +127,9 @@ socket = []
 version_res = []
 coref = []
 iokit = []
+emulator_link_args = []
 cocoa = not_found
-hvf = []
+hvf = not_found
 if targetos == 'windows'
   socket = cc.find_library('ws2_32')
   winmm = cc.find_library('winmm')
@@ -116,7 +142,6 @@ elif targetos == 'darwin'
   coref = dependency('appleframeworks', modules: 'CoreFoundation')
   iokit = dependency('appleframeworks', modules: 'IOKit')
   cocoa = dependency('appleframeworks', modules: 'Cocoa', required: get_option('cocoa'))
-  hvf = dependency('appleframeworks', modules: 'Hypervisor')
 elif targetos == 'sunos'
   socket = [cc.find_library('socket'),
             cc.find_library('nsl'),
@@ -125,8 +150,71 @@ elif targetos == 'haiku'
   socket = [cc.find_library('posix_error_mapper'),
             cc.find_library('network'),
             cc.find_library('bsd')]
+elif targetos == 'openbsd'
+  if not get_option('tcg').disabled() and target_dirs.length() > 0
+    # Disable OpenBSD W^X if available
+    emulator_link_args = cc.get_supported_link_arguments('-Wl,-z,wxneeded')
+  endif
 endif
 
+accelerators = []
+if not get_option('kvm').disabled() and targetos == 'linux'
+  accelerators += 'CONFIG_KVM'
+endif
+if not get_option('xen').disabled() and 'CONFIG_XEN_BACKEND' in config_host
+  accelerators += 'CONFIG_XEN'
+  have_xen_pci_passthrough = not get_option('xen_pci_passthrough').disabled() and targetos == 'linux'
+else
+  have_xen_pci_passthrough = false
+endif
+if not get_option('whpx').disabled() and targetos == 'windows'
+  if get_option('whpx').enabled() and cpu != 'x86_64'
+    error('WHPX requires 64-bit host')
+  elif cc.has_header('WinHvPlatform.h', required: get_option('whpx')) and \
+       cc.has_header('WinHvEmulation.h', required: get_option('whpx'))
+    accelerators += 'CONFIG_WHPX'
+  endif
+endif
+if not get_option('hvf').disabled()
+  hvf = dependency('appleframeworks', modules: 'Hypervisor',
+                   required: get_option('hvf'))
+  if hvf.found()
+    accelerators += 'CONFIG_HVF'
+  endif
+endif
+if not get_option('hax').disabled()
+  if get_option('hax').enabled() or targetos in ['windows', 'darwin', 'netbsd']
+    accelerators += 'CONFIG_HAX'
+  endif
+endif
+if not get_option('tcg').disabled()
+  if cpu not in supported_cpus
+    if 'CONFIG_TCG_INTERPRETER' in config_host
+      warning('Unsupported CPU @0@, will use TCG with TCI (experimental)'.format(cpu))
+    else
+      error('Unsupported CPU @0@, try --enable-tcg-interpreter'.format(cpu))
+    endif
+  endif
+  accelerators += 'CONFIG_TCG'
+  config_host += { 'CONFIG_TCG': 'y' }
+endif
+
+if 'CONFIG_KVM' not in accelerators and get_option('kvm').enabled()
+  error('KVM not available on this platform')
+endif
+if 'CONFIG_HVF' not in accelerators and get_option('hvf').enabled()
+  error('HVF not available on this platform')
+endif
+if 'CONFIG_WHPX' not in accelerators and get_option('whpx').enabled()
+  error('WHPX not available on this platform')
+endif
+if not have_xen_pci_passthrough and get_option('xen_pci_passthrough').enabled()
+  if 'CONFIG_XEN' in accelerators
+    error('Xen PCI passthrough not available on this platform')
+  else
+    error('Xen PCI passthrough requested but Xen not enabled')
+  endif
+endif
 if not cocoa.found() and get_option('cocoa').enabled()
   error('Cocoa not available on this platform')
 endif
@@ -495,11 +583,6 @@ if 'CONFIG_USB_LIBUSB' in config_host
   libusb = declare_dependency(compile_args: config_host['LIBUSB_CFLAGS'].split(),
                               link_args: config_host['LIBUSB_LIBS'].split())
 endif
-capstone = not_found
-if 'CONFIG_CAPSTONE' in config_host
-  capstone = declare_dependency(compile_args: config_host['CAPSTONE_CFLAGS'].split(),
-                                link_args: config_host['CAPSTONE_LIBS'].split())
-endif
 libpmem = not_found
 if 'CONFIG_LIBPMEM' in config_host
   libpmem = declare_dependency(compile_args: config_host['LIBPMEM_CFLAGS'].split(),
@@ -560,12 +643,15 @@ config_host_data.set('QEMU_VERSION_MAJOR', meson.project_version().split('.')[0]
 config_host_data.set('QEMU_VERSION_MINOR', meson.project_version().split('.')[1])
 config_host_data.set('QEMU_VERSION_MICRO', meson.project_version().split('.')[2])
 
+ignored = ['CONFIG_QEMU_INTERP_PREFIX'] # actually per-target
 arrays = ['CONFIG_AUDIO_DRIVERS', 'CONFIG_BDRV_RW_WHITELIST', 'CONFIG_BDRV_RO_WHITELIST']
 strings = ['HOST_DSOSUF', 'CONFIG_IASL', 'bindir', 'prefix', 'qemu_confdir', 'qemu_datadir',
            'qemu_moddir', 'qemu_localstatedir', 'qemu_helperdir', 'qemu_localedir',
            'qemu_icondir', 'qemu_desktopdir', 'qemu_firmwarepath', 'sysconfdir']
 foreach k, v: config_host
-  if arrays.contains(k)
+  if ignored.contains(k)
+    # do nothing
+  elif arrays.contains(k)
     if v != ''
       v = '"' + '", "'.join(v.split()) + '", '
     endif
@@ -581,7 +667,6 @@ foreach k, v: config_host
     config_host_data.set(k, v == 'y' ? 1 : v)
   endif
 endforeach
-genh += configure_file(output: 'config-host.h', configuration: config_host_data)
 
 minikconf = find_program('scripts/minikconf.py')
 config_all = {}
@@ -639,18 +724,68 @@ kconfig_external_symbols = [
   'CONFIG_LINUX',
   'CONFIG_PVRDMA',
 ]
-ignored = ['TARGET_XML_FILES', 'TARGET_ABI_DIR', 'TARGET_DIRS']
+ignored = [ 'TARGET_XML_FILES', 'TARGET_ABI_DIR', 'TARGET_ARCH' ]
 
-accel_symbols = [
-  'CONFIG_KVM',
-  'CONFIG_HAX',
-  'CONFIG_HVF',
-  'CONFIG_TCG',
-  'CONFIG_WHPX'
-]
-
+default_targets = 'CONFIG_DEFAULT_TARGETS' in config_host
+actual_target_dirs = []
 foreach target : target_dirs
-  config_target = keyval.load(meson.current_build_dir() / target / 'config-target.mak')
+  config_target = { 'TARGET_NAME': target.split('-')[0] }
+  if target.endswith('linux-user')
+    if targetos != 'linux'
+      if default_targets
+        continue
+      endif
+      error('Target @0@ is only available on a Linux host'.format(target))
+    endif
+    config_target += { 'CONFIG_LINUX_USER': 'y' }
+  elif target.endswith('bsd-user')
+    if 'CONFIG_BSD' not in config_host
+      if default_targets
+        continue
+      endif
+      error('Target @0@ is only available on a BSD host'.format(target))
+    endif
+    config_target += { 'CONFIG_BSD_USER': 'y' }
+  elif target.endswith('softmmu')
+    config_target += { 'CONFIG_SOFTMMU': 'y' }
+  endif
+  if target.endswith('-user')
+    config_target += {
+      'CONFIG_USER_ONLY': 'y',
+      'CONFIG_QEMU_INTERP_PREFIX':
+        config_host['CONFIG_QEMU_INTERP_PREFIX'].format(config_target['TARGET_NAME'])
+    }
+  endif
+
+  have_accel = false
+  foreach sym: accelerators
+    if sym == 'CONFIG_TCG' or target in accelerator_targets.get(sym, [])
+      config_target += { sym: 'y' }
+      config_all += { sym: 'y' }
+      if sym == 'CONFIG_XEN' and have_xen_pci_passthrough
+        config_target += { 'CONFIG_XEN_PCI_PASSTHROUGH': 'y' }
+      endif
+      have_accel = true
+    endif
+  endforeach
+  if not have_accel
+    if default_targets
+      continue
+    endif
+    error('No accelerator available for target @0@'.format(target))
+  endif
+
+  actual_target_dirs += target
+  config_target += keyval.load('default-configs/targets' / target + '.mak')
+  config_target += { 'TARGET_' + config_target['TARGET_ARCH'].to_upper(): 'y' }
+
+  # Add default keys
+  if 'TARGET_BASE_ARCH' not in config_target
+    config_target += {'TARGET_BASE_ARCH': config_target['TARGET_ARCH']}
+  endif
+  if 'TARGET_ABI_DIR' not in config_target
+    config_target += {'TARGET_ABI_DIR': config_target['TARGET_ARCH']}
+  endif
 
   foreach k, v: disassemblers
     if config_host['ARCH'].startswith(k) or config_target['TARGET_BASE_ARCH'].startswith(k)
@@ -668,18 +803,15 @@ foreach target : target_dirs
     elif ignored.contains(k)
       # do nothing
     elif k == 'TARGET_BASE_ARCH'
+      # Note that TARGET_BASE_ARCH ends up in config-target.h but it is
+      # not used to select files from sourcesets.
       config_target_data.set('TARGET_' + v.to_upper(), 1)
-    elif k == 'TARGET_NAME'
+    elif k == 'TARGET_NAME' or k == 'CONFIG_QEMU_INTERP_PREFIX'
       config_target_data.set_quoted(k, v)
     elif v == 'y'
       config_target_data.set(k, 1)
     else
       config_target_data.set(k, v)
-    endif
-  endforeach
-  foreach sym: accel_symbols
-    if config_target.has_key(sym)
-      config_all += { sym: 'y' }
     endif
   endforeach
   config_target_h += {target: configure_file(output: target + '-config-target.h',
@@ -695,7 +827,7 @@ foreach target : target_dirs
 
     config_devices_mak = target + '-config-devices.mak'
     config_devices_mak = configure_file(
-      input: ['default-configs' / target + '.mak', 'Kconfig'],
+      input: ['default-configs/devices' / target + '.mak', 'Kconfig'],
       output: config_devices_mak,
       depfile: config_devices_mak + '.d',
       capture: true,
@@ -716,6 +848,7 @@ foreach target : target_dirs
   endif
   config_target_mak += {target: config_target}
 endforeach
+target_dirs = actual_target_dirs
 
 # This configuration is used to build files that are shared by
 # multiple binaries, and then extracted out of the "common"
@@ -735,6 +868,119 @@ config_all += {
   'CONFIG_USER_ONLY': have_user,
   'CONFIG_ALL': true,
 }
+
+# Submodules
+
+capstone = not_found
+capstone_opt = get_option('capstone')
+if capstone_opt in ['enabled', 'auto', 'system']
+  have_internal = fs.exists(meson.current_source_dir() / 'capstone/Makefile')
+  capstone = dependency('capstone', version: '>=4.0',
+                        static: enable_static, method: 'pkg-config',
+                        required: capstone_opt == 'system' or
+                                  capstone_opt == 'enabled' and not have_internal)
+  if capstone.found()
+    capstone_opt = 'system'
+  elif have_internal
+    capstone_opt = 'internal'
+  else
+    capstone_opt = 'disabled'
+  endif
+endif
+if capstone_opt == 'internal'
+  capstone_data = configuration_data()
+  capstone_data.set('CAPSTONE_USE_SYS_DYN_MEM', '1')
+
+  capstone_files = files(
+    'capstone/cs.c',
+    'capstone/MCInst.c',
+    'capstone/MCInstrDesc.c',
+    'capstone/MCRegisterInfo.c',
+    'capstone/SStream.c',
+    'capstone/utils.c'
+  )
+
+  if 'CONFIG_ARM_DIS' in config_all_disas
+    capstone_data.set('CAPSTONE_HAS_ARM', '1')
+    capstone_files += files(
+      'capstone/arch/ARM/ARMDisassembler.c',
+      'capstone/arch/ARM/ARMInstPrinter.c',
+      'capstone/arch/ARM/ARMMapping.c',
+      'capstone/arch/ARM/ARMModule.c'
+    )
+  endif
+
+  # FIXME: This config entry currently depends on a c++ compiler.
+  # Which is needed for building libvixl, but not for capstone.
+  if 'CONFIG_ARM_A64_DIS' in config_all_disas
+    capstone_data.set('CAPSTONE_HAS_ARM64', '1')
+    capstone_files += files(
+      'capstone/arch/AArch64/AArch64BaseInfo.c',
+      'capstone/arch/AArch64/AArch64Disassembler.c',
+      'capstone/arch/AArch64/AArch64InstPrinter.c',
+      'capstone/arch/AArch64/AArch64Mapping.c',
+      'capstone/arch/AArch64/AArch64Module.c'
+    )
+  endif
+
+  if 'CONFIG_PPC_DIS' in config_all_disas
+    capstone_data.set('CAPSTONE_HAS_POWERPC', '1')
+    capstone_files += files(
+      'capstone/arch/PowerPC/PPCDisassembler.c',
+      'capstone/arch/PowerPC/PPCInstPrinter.c',
+      'capstone/arch/PowerPC/PPCMapping.c',
+      'capstone/arch/PowerPC/PPCModule.c'
+    )
+  endif
+
+  if 'CONFIG_S390_DIS' in config_all_disas
+    capstone_data.set('CAPSTONE_HAS_SYSZ', '1')
+    capstone_files += files(
+      'capstone/arch/SystemZ/SystemZDisassembler.c',
+      'capstone/arch/SystemZ/SystemZInstPrinter.c',
+      'capstone/arch/SystemZ/SystemZMapping.c',
+      'capstone/arch/SystemZ/SystemZModule.c',
+      'capstone/arch/SystemZ/SystemZMCTargetDesc.c'
+    )
+  endif
+
+  if 'CONFIG_I386_DIS' in config_all_disas
+    capstone_data.set('CAPSTONE_HAS_X86', 1)
+    capstone_files += files(
+      'capstone/arch/X86/X86Disassembler.c',
+      'capstone/arch/X86/X86DisassemblerDecoder.c',
+      'capstone/arch/X86/X86ATTInstPrinter.c',
+      'capstone/arch/X86/X86IntelInstPrinter.c',
+      'capstone/arch/X86/X86InstPrinterCommon.c',
+      'capstone/arch/X86/X86Mapping.c',
+      'capstone/arch/X86/X86Module.c'
+    )
+  endif
+
+  configure_file(output: 'capstone-defs.h', configuration: capstone_data)
+
+  capstone_cargs = [
+    # FIXME: There does not seem to be a way to completely replace the c_args
+    # that come from add_project_arguments() -- we can only add to them.
+    # So: disable all warnings with a big hammer.
+    '-Wno-error', '-w',
+
+    # Include all configuration defines via a header file, which will wind up
+    # as a dependency on the object file, and thus changes here will result
+    # in a rebuild.
+    '-include', 'capstone-defs.h'
+  ]
+
+  libcapstone = static_library('capstone',
+                               sources: capstone_files,
+                               c_args: capstone_cargs,
+                               include_directories: 'capstone/include')
+  capstone = declare_dependency(link_with: libcapstone,
+                                include_directories: 'capstone/include/capstone')
+endif
+config_host_data.set('CONFIG_CAPSTONE', capstone.found())
+
+genh += configure_file(output: 'config-host.h', configuration: config_host_data)
 
 # Generators
 
@@ -1007,6 +1253,7 @@ common_ss.add(files('cpus-common.c'))
 
 subdir('softmmu')
 
+common_ss.add(capstone)
 specific_ss.add(files('disas.c', 'exec.c', 'gdbstub.c'), capstone, libpmem, libdaxctl)
 specific_ss.add(files('exec-vary.c'))
 specific_ss.add(when: 'CONFIG_TCG', if_true: files(
@@ -1128,7 +1375,7 @@ foreach target : target_dirs
   c_args = ['-DNEED_CPU_H',
             '-DCONFIG_TARGET="@0@-config-target.h"'.format(target),
             '-DCONFIG_DEVICES="@0@-config-devices.h"'.format(target)]
-  link_args = []
+  link_args = emulator_link_args
 
   config_target += config_host
   target_inc = [include_directories('target' / config_target['TARGET_BASE_ARCH'])]
@@ -1419,9 +1666,9 @@ if config_host.has_key('CONFIG_MODULES')
 endif
 summary_info += {'host CPU':          cpu}
 summary_info += {'host endianness':   build_machine.endian()}
-summary_info += {'target list':       config_host['TARGET_DIRS']}
+summary_info += {'target list':       ' '.join(target_dirs)}
 summary_info += {'gprof enabled':     config_host.has_key('CONFIG_GPROF')}
-summary_info += {'sparse enabled':    meson.get_compiler('c').cmd_array().contains('cgcc')}
+summary_info += {'sparse enabled':    sparse.found()}
 summary_info += {'strip binaries':    get_option('strip')}
 summary_info += {'profiler':          config_host.has_key('CONFIG_PROFILER')}
 summary_info += {'static build':      config_host.has_key('CONFIG_STATIC')}
@@ -1566,7 +1813,7 @@ summary_info += {'vvfat support':     config_host.has_key('CONFIG_VVFAT')}
 summary_info += {'qed support':       config_host.has_key('CONFIG_QED')}
 summary_info += {'parallels support': config_host.has_key('CONFIG_PARALLELS')}
 summary_info += {'sheepdog support':  config_host.has_key('CONFIG_SHEEPDOG')}
-summary_info += {'capstone':          config_host.has_key('CONFIG_CAPSTONE')}
+summary_info += {'capstone':          capstone_opt == 'disabled' ? false : capstone_opt}
 summary_info += {'libpmem support':   config_host.has_key('CONFIG_LIBPMEM')}
 summary_info += {'libdaxctl support': config_host.has_key('CONFIG_LIBDAXCTL')}
 summary_info += {'libudev':           libudev.found()}
