@@ -21,17 +21,6 @@ deprecated.
 System emulator command line arguments
 --------------------------------------
 
-``-machine enforce-config-section=on|off`` (since 3.1)
-''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-The ``enforce-config-section`` parameter is replaced by the
-``-global migration.send-configuration={on|off}`` option.
-
-``-no-kvm`` (since 1.3.0)
-'''''''''''''''''''''''''
-
-The ``-no-kvm`` argument is now a synonym for setting ``-accel tcg``.
-
 ``-usbdevice`` (since 2.10.0)
 '''''''''''''''''''''''''''''
 
@@ -283,6 +272,14 @@ for VNC should be performed using the pluggable QAuthZ objects.
 System emulator CPUS
 --------------------
 
+``moxie`` CPU (since 5.2.0)
+'''''''''''''''''''''''''''
+
+The ``moxie`` guest CPU support is deprecated and will be removed in
+a future version of QEMU. It's unclear whether anybody is still using
+CPU emulation in QEMU, and there are no test images available to make
+sure that the code is still working.
+
 ``compat`` property of server class POWER CPUs (since 5.0)
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
@@ -305,6 +302,12 @@ The ``unicore32`` guest CPU support is deprecated and will be removed in
 a future version of QEMU. Support for this CPU was removed from the
 upstream Linux kernel, and there is no available upstream toolchain
 to build binaries for it.
+
+``Icelake-Client`` CPU Model (since 5.2.0)
+''''''''''''''''''''''''''''''''''''''''''
+
+``Icelake-Client`` CPU Models are deprecated. Use ``Icelake-Server`` CPU
+Models instead.
 
 System emulator devices
 -----------------------
@@ -381,6 +384,15 @@ Example of legacy encoding::
 The above, converted to the current supported format::
 
   json:{"file.driver":"rbd", "file.pool":"rbd", "file.image":"name"}
+
+``sheepdog`` driver (since 5.2.0)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``sheepdog`` block device driver is deprecated. The corresponding upstream
+server project is no longer actively maintained. Users are recommended to switch
+to an alternative distributed block device driver such as RBD. The
+``qemu-img convert`` command can be used to liberate existing data by moving
+it out of sheepdog volumes into an alternative storage backend.
 
 linux-user mode CPUs
 --------------------
@@ -480,6 +492,12 @@ System emulator command line arguments
 
 The ``name`` parameter of the ``-net`` option was a synonym
 for the ``id`` parameter, which should now be used instead.
+
+``-no-kvm`` (removed in 5.2)
+''''''''''''''''''''''''''''
+
+The ``-no-kvm`` argument was a synonym for setting ``-machine accel=tcg``.
+
 
 QEMU Machine Protocol (QMP) commands
 ------------------------------------
@@ -664,6 +682,12 @@ which could lead to an incorrect topology enumeration by the guest.
 Support for invalid topologies is removed, the user must ensure
 topologies described with -smp include all possible cpus, i.e.
 *sockets* * *cores* * *threads* = *maxcpus*.
+
+``-machine enforce-config-section=on|off`` (removed 5.2)
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+The ``enforce-config-section`` property was replaced by the
+``-global migration.send-configuration={on|off}`` option.
 
 Block devices
 -------------

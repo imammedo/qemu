@@ -14,6 +14,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/log.h"
 #include "qapi/error.h"
 #include "cpu.h"
 #include "exec/memory.h"
@@ -652,6 +653,19 @@ static void render_memory_region(FlatView *view,
         fr.offset_in_region = offset_in_region;
         fr.addr = addrrange_make(base, remain);
         flatview_insert(view, i, &fr);
+    }
+}
+
+void flatview_for_each_range(FlatView *fv, flatview_cb cb , void *opaque)
+{
+    FlatRange *fr;
+
+    assert(fv);
+    assert(cb);
+
+    FOR_EACH_FLAT_RANGE(fr, fv) {
+        if (cb(fr->addr.start, fr->addr.size, fr->mr, opaque))
+            break;
     }
 }
 
@@ -1353,10 +1367,18 @@ bool memory_region_access_valid(MemoryRegion *mr,
 {
     if (mr->ops->valid.accepts
         && !mr->ops->valid.accepts(mr->opaque, addr, size, is_write, attrs)) {
+        qemu_log_mask(LOG_GUEST_ERROR, "Invalid access at addr "
+                                       "0x%" HWADDR_PRIX ", size %u, "
+                                       "region '%s', reason: rejected\n",
+                      addr, size, memory_region_name(mr));
         return false;
     }
 
     if (!mr->ops->valid.unaligned && (addr & (size - 1))) {
+        qemu_log_mask(LOG_GUEST_ERROR, "Invalid access at addr "
+                                       "0x%" HWADDR_PRIX ", size %u, "
+                                       "region '%s', reason: unaligned\n",
+                      addr, size, memory_region_name(mr));
         return false;
     }
 
@@ -1367,6 +1389,13 @@ bool memory_region_access_valid(MemoryRegion *mr,
 
     if (size > mr->ops->valid.max_access_size
         || size < mr->ops->valid.min_access_size) {
+        qemu_log_mask(LOG_GUEST_ERROR, "Invalid access at addr "
+                                       "0x%" HWADDR_PRIX ", size %u, "
+                                       "region '%s', reason: invalid size "
+                                       "(min:%u max:%u)\n",
+                      addr, size, memory_region_name(mr),
+                      mr->ops->valid.min_access_size,
+                      mr->ops->valid.max_access_size);
         return false;
     }
     return true;
@@ -1404,6 +1433,7 @@ MemTxResult memory_region_dispatch_read(MemoryRegion *mr,
     unsigned size = memop_size(op);
     MemTxResult r;
 
+    fuzz_dma_read_cb(addr, size, mr, false);
     if (!memory_region_access_valid(mr, addr, size, false, attrs)) {
         *pval = unassigned_mem_read(mr, addr, size);
         return MEMTX_DECODE_ERROR;
@@ -3216,6 +3246,19 @@ void memory_region_init_rom_device(MemoryRegion *mr,
     owner_dev = DEVICE(owner);
     vmstate_register_ram(mr, owner_dev);
 }
+
+/*
+ * Support softmmu builds with CONFIG_FUZZ using a weak symbol and a stub for
+ * the fuzz_dma_read_cb callback
+ */
+#ifdef CONFIG_FUZZ
+void __attribute__((weak)) fuzz_dma_read_cb(size_t addr,
+                      size_t len,
+                      MemoryRegion *mr,
+                      bool is_write)
+{
+}
+#endif
 
 static const TypeInfo memory_region_info = {
     .parent             = TYPE_OBJECT,

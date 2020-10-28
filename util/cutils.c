@@ -885,6 +885,20 @@ char *size_to_str(uint64_t val)
     return g_strdup_printf("%0.3g %sB", (double)val / div, suffixes[i]);
 }
 
+char *freq_to_str(uint64_t freq_hz)
+{
+    static const char *const suffixes[] = { "", "K", "M", "G", "T", "P", "E" };
+    double freq = freq_hz;
+    size_t idx = 0;
+
+    while (freq >= 1000.0 && idx < ARRAY_SIZE(suffixes)) {
+        freq /= 1000.0;
+        idx++;
+    }
+
+    return g_strdup_printf("%0.3g %sHz", freq, suffixes[idx]);
+}
+
 int qemu_pstrcmp0(const char **str1, const char **str2)
 {
     return g_strcmp0(*str1, *str2);
@@ -935,7 +949,7 @@ char *get_relocated_path(const char *dir)
         bindir += len_bindir;
         dir = next_component(dir, &len_dir);
         bindir = next_component(bindir, &len_bindir);
-    } while (len_dir == len_bindir && !memcmp(dir, bindir, len_dir));
+    } while (len_dir && len_dir == len_bindir && !memcmp(dir, bindir, len_dir));
 
     /* Ascend from bindir to the common prefix with dir.  */
     while (len_bindir) {

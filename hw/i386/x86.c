@@ -34,6 +34,7 @@
 #include "sysemu/numa.h"
 #include "sysemu/replay.h"
 #include "sysemu/sysemu.h"
+#include "sysemu/cpu-timers.h"
 #include "trace.h"
 
 #include "hw/i386/x86.h"
@@ -521,7 +522,7 @@ static long get_file_size(FILE *f)
 /* TSC handling */
 uint64_t cpu_get_tsc(CPUX86State *env)
 {
-    return cpu_get_ticks();
+    return cpus_get_elapsed_ticks();
 }
 
 /* IRQ handling */
@@ -1177,6 +1178,7 @@ static void x86_machine_initfn(Object *obj)
     x86ms->smm = ON_OFF_AUTO_AUTO;
     x86ms->acpi = ON_OFF_AUTO_AUTO;
     x86ms->smp_dies = 1;
+    x86ms->pci_irq_mask = ACPI_BUILD_PCI_IRQS;
 }
 
 static void x86_machine_class_init(ObjectClass *oc, void *data)

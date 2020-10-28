@@ -25,6 +25,7 @@
 #include "qapi/error.h"
 #include "qemu/cutils.h"
 #include "sysemu/block-backend.h"
+#include "sysemu/runstate.h" /* for qemu_system_killed() prototype */
 #include "block/block_int.h"
 #include "block/nbd.h"
 #include "qemu/main-loop.h"
@@ -154,13 +155,17 @@ QEMU_COPYRIGHT "\n"
     , name);
 }
 
-#if HAVE_NBD_DEVICE
-static void termsig_handler(int signum)
+#ifdef CONFIG_POSIX
+/*
+ * The client thread uses SIGTERM to interrupt the server.  A signal
+ * handler ensures that "qemu-nbd -v -c" exits with a nice status code.
+ */
+void qemu_system_killed(int signum, pid_t pid)
 {
     qatomic_cmpxchg(&state, RUNNING, TERMINATE);
     qemu_notify_event();
 }
-#endif /* HAVE_NBD_DEVICE */
+#endif /* CONFIG_POSIX */
 
 static int qemu_nbd_client_list(SocketAddress *saddr, QCryptoTLSCreds *tls,
                                 const char *hostname)
@@ -581,18 +586,9 @@ int main(int argc, char **argv)
     const char *pid_file_name = NULL;
     BlockExportOptions *export_opts;
 
-#if HAVE_NBD_DEVICE
-    /* The client thread uses SIGTERM to interrupt the server.  A signal
-     * handler ensures that "qemu-nbd -v -c" exits with a nice status code.
-     */
-    struct sigaction sa_sigterm;
-    memset(&sa_sigterm, 0, sizeof(sa_sigterm));
-    sa_sigterm.sa_handler = termsig_handler;
-    sigaction(SIGTERM, &sa_sigterm, NULL);
-#endif /* HAVE_NBD_DEVICE */
-
 #ifdef CONFIG_POSIX
-    signal(SIGPIPE, SIG_IGN);
+    os_setup_early_signal_handling();
+    os_setup_signal_handling();
 #endif
 
     socket_init();

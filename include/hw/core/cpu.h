@@ -155,6 +155,8 @@ struct TranslationBlock;
  * @disas_set_info: Setup architecture specific components of disassembly info
  * @adjust_watchpoint_address: Perform a target-specific adjustment to an
  * address before attempting to match it against watchpoints.
+ * @deprecation_note: If this CPUClass is deprecated, this field provides
+ *                    related information.
  *
  * Represents a CPU family or model.
  */
@@ -221,6 +223,7 @@ struct CPUClass {
     vaddr (*adjust_watchpoint_address)(CPUState *cpu, vaddr addr, int len);
     void (*tcg_initialize)(void);
 
+    const char *deprecation_note;
     /* Keep non-pointer data at the end to minimize holes.  */
     int gdb_num_core_regs;
     bool gdb_stop_before_watchpoint;
@@ -844,12 +847,6 @@ bool cpu_exists(int64_t id);
  */
 CPUState *cpu_by_arch_id(int64_t id);
 
-#ifndef CONFIG_USER_ONLY
-
-typedef void (*CPUInterruptHandler)(CPUState *, int);
-
-extern CPUInterruptHandler cpu_interrupt_handler;
-
 /**
  * cpu_interrupt:
  * @cpu: The CPU to set an interrupt on.
@@ -857,16 +854,8 @@ extern CPUInterruptHandler cpu_interrupt_handler;
  *
  * Invokes the interrupt handler.
  */
-static inline void cpu_interrupt(CPUState *cpu, int mask)
-{
-    cpu_interrupt_handler(cpu, mask);
-}
-
-#else /* USER_ONLY */
 
 void cpu_interrupt(CPUState *cpu, int mask);
-
-#endif /* USER_ONLY */
 
 #ifdef NEED_CPU_H
 

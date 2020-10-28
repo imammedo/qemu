@@ -27,13 +27,19 @@
 #
 # @vm-clock-nsec: fractional part in nano seconds to be used with vm-clock-sec
 #
+# @icount: Current instruction count. Appears when execution record/replay
+#          is enabled. Used for "time-traveling" to match the moment
+#          in the recorded execution with the snapshots. This counter may
+#          be obtained through @query-replay command (since 5.2)
+#
 # Since: 1.3
 #
 ##
 { 'struct': 'SnapshotInfo',
   'data': { 'id': 'str', 'name': 'str', 'vm-state-size': 'int',
             'date-sec': 'int', 'date-nsec': 'int',
-            'vm-clock-sec': 'int', 'vm-clock-nsec': 'int' } }
+            'vm-clock-sec': 'int', 'vm-clock-nsec': 'int',
+            '*icount': 'int' } }
 
 ##
 # @ImageInfoSpecificQCow2EncryptionBase:
@@ -942,6 +948,27 @@
       'discard-bytes-ok': 'uint64' } }
 
 ##
+# @BlockStatsSpecificNvme:
+#
+# NVMe driver statistics
+#
+# @completion-errors: The number of completion errors.
+#
+# @aligned-accesses: The number of aligned accesses performed by
+#                    the driver.
+#
+# @unaligned-accesses: The number of unaligned accesses performed by
+#                      the driver.
+#
+# Since: 5.2
+##
+{ 'struct': 'BlockStatsSpecificNvme',
+  'data': {
+      'completion-errors': 'uint64',
+      'aligned-accesses': 'uint64',
+      'unaligned-accesses': 'uint64' } }
+
+##
 # @BlockStatsSpecific:
 #
 # Block driver specific statistics
@@ -953,7 +980,8 @@
   'discriminator': 'driver',
   'data': {
       'file': 'BlockStatsSpecificFile',
-      'host_device': 'BlockStatsSpecificFile' } }
+      'host_device': 'BlockStatsSpecificFile',
+      'nvme': 'BlockStatsSpecificNvme' } }
 
 ##
 # @BlockStats:
@@ -1304,7 +1332,8 @@
 { 'command': 'block_resize',
   'data': { '*device': 'str',
             '*node-name': 'str',
-            'size': 'int' } }
+            'size': 'int' },
+  'coroutine': true }
 
 ##
 # @NewImageMode:
@@ -5363,7 +5392,8 @@
 #                    "date-sec": 1000012,
 #                    "date-nsec": 10,
 #                    "vm-clock-sec": 100,
-#                    "vm-clock-nsec": 20
+#                    "vm-clock-nsec": 20,
+#                    "icount": 220414
 #      }
 #    }
 #
