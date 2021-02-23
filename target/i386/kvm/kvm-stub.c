@@ -45,6 +45,11 @@ void kvm_hyperv_expand_features(X86CPU *cpu, Error **errp)
     return;
 }
 
+uint64_t hyperv_get_host_supported_features(CPUState *cs)
+{
+    return 0;
+}
+
 bool kvm_hv_evmcs_available(void)
 {
     return false;

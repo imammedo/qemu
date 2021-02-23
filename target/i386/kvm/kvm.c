@@ -27,6 +27,7 @@
 #include "sysemu/kvm_int.h"
 #include "sysemu/runstate.h"
 #include "kvm_i386.h"
+#include "accel/kvm/kvm-cpus.h"
 #include "hyperv.h"
 #include "hyperv-proto.h"
 
@@ -97,6 +98,7 @@ static bool has_msr_hv_reset;
 static bool has_msr_hv_vpindex;
 static bool hv_vpindex_settable;
 static bool hv_evmcs_available;
+static uint64_t hv_host_features;
 static bool has_msr_hv_runtime;
 static bool has_msr_hv_synic;
 static bool has_msr_hv_stimer;
@@ -976,7 +978,7 @@ static struct kvm_cpuid2 *get_supported_hv_cpuid(CPUState *cs)
     bool do_sys_ioctl;
 
     do_sys_ioctl =
-        kvm_check_extension(kvm_state, KVM_CAP_SYS_HYPERV_CPUID) > 0;
+        kvm_check_extension(cs->kvm_state, KVM_CAP_SYS_HYPERV_CPUID) > 0;
 
     /*
      * When the buffer is too small, KVM_GET_SUPPORTED_HV_CPUID fails with
@@ -1149,19 +1151,11 @@ static bool hyperv_feature_supported(CPUState *cs, int feature)
     return true;
 }
 
-static int hv_cpuid_check_and_set(CPUState *cs, int feature, Error **errp)
+static int hv_cpuid_check(CPUState *cs, int feature, Error **errp)
 {
     X86CPU *cpu = X86_CPU(cs);
     uint64_t deps;
     int dep_feat;
-
-    if (!hyperv_feat_enabled(cpu, feature) && !cpu->hyperv_passthrough) {
-        return 0;
-    }
-
-    if (cpu->hyperv_passthrough && (cpu->hyperv_features_off & BIT(feature))) {
-        return 0;
-    }
 
     deps = kvm_hyperv_properties[feature].dependencies;
     while (deps) {
@@ -1185,10 +1179,10 @@ static int hv_cpuid_check_and_set(CPUState *cs, int feature, Error **errp)
         }
     }
 
-    if (cpu->hyperv_passthrough) {
-        cpu->hyperv_features |= BIT(feature);
+    if (hyperv_feat_enabled(cpu, HYPERV_FEAT_EVMCS) && !cpu_has_vmx(&cpu->env)) {
+        error_setg(errp, "Hyper-V 'hv-evmcs' requires 'vmx' feature");
+        return 1;
     }
-
     return 0;
 }
 
@@ -1218,6 +1212,45 @@ static uint32_t hv_build_cpuid_leaf(CPUState *cs, uint32_t func, int reg)
     return r;
 }
 
+
+static int hv_features_list[] = {
+    HYPERV_FEAT_RELAXED, HYPERV_FEAT_VAPIC, HYPERV_FEAT_TIME, HYPERV_FEAT_CRASH,
+    HYPERV_FEAT_RESET, HYPERV_FEAT_VPINDEX, HYPERV_FEAT_RUNTIME,
+    HYPERV_FEAT_SYNIC, HYPERV_FEAT_STIMER, HYPERV_FEAT_FREQUENCIES,
+    HYPERV_FEAT_REENLIGHTENMENT, HYPERV_FEAT_TLBFLUSH, HYPERV_FEAT_EVMCS,
+    HYPERV_FEAT_IPI, HYPERV_FEAT_STIMER_DIRECT,
+};
+
+
+uint64_t hyperv_get_host_supported_features(CPUState *cs)
+{
+   int i;
+   X86CPU *cpu = X86_CPU(cs);
+
+    if (!hyperv_enabled(cpu)) {
+        return 0;
+    }
+
+   if (hv_host_features) {
+       return hv_host_features;
+   } 
+
+   cs->kvm_state = kvm_state;
+   cs->kvm_fd = kvm_get_vcpu(cs->kvm_state, 0);
+
+   for (i=0; i < ARRAY_SIZE(hv_features_list); i++) {
+       if (hyperv_feature_supported(cs, hv_features_list[i])) {
+           hv_host_features |= BIT(hv_features_list[i]); 
+       }
+   }
+
+   kvm_park_cpu(cs->kvm_fd, 0);
+   cs->kvm_fd = -1;
+   cs->kvm_state = NULL;
+
+   return hv_host_features;
+}
+
 /*
  * Expand Hyper-V CPU features. In partucular, check that all the requested
  * features are supported by the host and the sanity of the configuration
@@ -1227,21 +1260,13 @@ static uint32_t hv_build_cpuid_leaf(CPUState *cs, uint32_t func, int reg)
  */
 void kvm_hyperv_expand_features(X86CPU *cpu, Error **errp)
 {
+    int i;
     CPUState *cs = CPU(cpu);
 
     if (!hyperv_enabled(cpu))
         return;
 
-    /*
-     * When kvm_hyperv_expand_features is called at CPU feature expansion
-     * time per-CPU kvm_state is not available yet so we can only proceed
-     * when KVM_CAP_SYS_HYPERV_CPUID is supported.
-     */
-    if (!cs->kvm_state &&
-        !kvm_check_extension(kvm_state, KVM_CAP_SYS_HYPERV_CPUID))
-        return;
-
-    if (cpu->hyperv_passthrough) {
+    if (cpu->hyperv_passthrough) { // possibly could be moved to hyperv_get_host_supported_features()
         cpu->hyperv_vendor_id[0] =
             hv_cpuid_get_host(cs, HV_CPUID_VENDOR_AND_MAX_FUNCTIONS, R_EBX);
         cpu->hyperv_vendor_id[1] =
@@ -1284,60 +1309,14 @@ void kvm_hyperv_expand_features(X86CPU *cpu, Error **errp)
             hv_cpuid_get_host(cs, HV_CPUID_ENLIGHTMENT_INFO, R_EBX);
     }
 
-    /* Features */
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_RELAXED, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_VAPIC, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_TIME, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_CRASH, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_RESET, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_VPINDEX, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_RUNTIME, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_SYNIC, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_STIMER, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_FREQUENCIES, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_REENLIGHTENMENT, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_TLBFLUSH, errp)) {
-        return;
-    }
-    /*
-     * 'hv-evmcs' is not enabled when it wasn't explicitly requested and guest
-     * CPU lacks VMX.
-     */
-    if (cpu_has_vmx(&cpu->env) ||
-        (cpu->hyperv_features_on & BIT(HYPERV_FEAT_EVMCS))) {
-        if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_EVMCS, errp)) {
-            return;
+
+    /* Check features */
+    for (i=0; i < ARRAY_SIZE(hv_features_list); i++) {
+        if (hyperv_feature_supported(cs, hv_features_list[i])) {
+            if (hv_cpuid_check(cs, hv_features_list[i], errp)) {
+                return;
+            }
         }
-    } else {
-        cpu->hyperv_features &= ~BIT(HYPERV_FEAT_EVMCS);
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_IPI, errp)) {
-        return;
-    }
-    if (hv_cpuid_check_and_set(cs, HYPERV_FEAT_STIMER_DIRECT, errp)) {
-        return;
     }
 
     /* Additional dependencies not covered by kvm_hyperv_properties[] */

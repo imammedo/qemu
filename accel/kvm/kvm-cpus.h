@@ -13,6 +13,8 @@
 #include "sysemu/cpus.h"
 
 int kvm_init_vcpu(CPUState *cpu, Error **errp);
+int kvm_get_vcpu(KVMState *s, unsigned long vcpu_id);
+void kvm_park_cpu(int vcpu_fd, unsigned long vcpu_id);
 int kvm_cpu_exec(CPUState *cpu);
 void kvm_destroy_vcpu(CPUState *cpu);
 void kvm_cpu_synchronize_post_reset(CPUState *cpu);
